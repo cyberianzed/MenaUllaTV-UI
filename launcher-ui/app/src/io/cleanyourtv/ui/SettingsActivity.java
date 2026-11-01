@@ -165,7 +165,7 @@ public class SettingsActivity extends Activity {
             scene.setMotion(0.5f, 0.2f);
             scene.applyPalette();
             setFocusable(true);
-            setContentDescription("CleanYourTV UI");
+            setContentDescription(NAME);
             // TalkBack: one item per row, id = row + 1.
             spoken = new Spoken(this, new Spoken.Source() {
                 @Override public void items(List<Integer> out) { for (int i = 1; i <= rowCount(); i++) out.add(i); }
@@ -325,10 +325,10 @@ public class SettingsActivity extends Activity {
             // On the left: big symbol, title, description.
             float cx = 500 * k;
             Symbols.draw(getContext(), c, "sparkles", cx, 400 * k, 150 * k, 0xEBFFFFFF);
-            c.drawText("CleanYourTV UI", cx, 612 * k, title);
-            c.drawText(Ui.tr("Início e tela de descanso da TV", "Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
+            c.drawText(NAME, cx, 612 * k, title);
+            c.drawText("Muriyo thodakkunnilla, TV engilum mena aayitt irikkatte.", cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
-            c.drawText("Matheus Caldeira · github.com/matheus-caldeira/cleanyourtv-ui", cx, 742 * k, version);
+            c.drawText("Jose K James · github.com/cyberianzed/cleanyourtv-ui/tree/explore-home", cx, 742 * k, version);
 
             if (screen == MAIN) drawMain(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);
         }
@@ -409,11 +409,13 @@ public class SettingsActivity extends Activity {
                     | (Math.round(ag + (bg - ag) * f) << 8) | Math.round(ab + (bb - ab) * f);
         }
 
+        private static final String NAME = "MenaUllaTV UI";
+
         private static String versionName(Context c) {
             try {
-                return "CleanYourTV UI " + c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+                return NAME + " " + c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
             } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-                return "CleanYourTV UI";
+                return NAME;
             }
         }
 

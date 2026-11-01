@@ -744,6 +744,12 @@ public class ExploreActivity extends Activity {
                     return super.dispatchKeyEvent(e);
                 return true;
             }
+            if (f != null && f != burger && f != settingsButton && code >= KeyEvent.KEYCODE_DPAD_UP && code <= KeyEvent.KEYCODE_DPAD_RIGHT) {
+                int dir = code == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP : code == KeyEvent.KEYCODE_DPAD_DOWN ? View.FOCUS_DOWN
+                        : code == KeyEvent.KEYCODE_DPAD_LEFT ? View.FOCUS_LEFT : View.FOCUS_RIGHT;
+                View next = f.focusSearch(dir);
+                if (next != null && (next == burger || next == settingsButton)) return true;   // the corners: only Up from the banner
+            }
             // The shelf overlaps the banner's picture, so the system's own search could skip it: say where to go.
             boolean shelf = appsLine != null && appsLine.getChildCount() > 0;
             if (shelf && f == hero && code == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -926,7 +932,7 @@ public class ExploreActivity extends Activity {
             cwBox.setOrientation(LinearLayout.VERTICAL);
             cwBox.setClipChildren(false);
             rows.addView(cwBox);
-            if (Tmdb.hasKey()) rows.addView(filterBar());
+            if (Tmdb.hasKey()) rows.addView(bar = filterBar());
         }
         status = TvUi.text(this, k, 26, Ui.regular, TvUi.DIM);
         status.setPadding(0, Math.round(30 * k), 0, 0);
@@ -1016,12 +1022,32 @@ public class ExploreActivity extends Activity {
                     place(slot, s, got, gotCards);
                     if (personalOnly) return;
                     left[0]--;
+                    if (focusBelowBar == gen && (slot == firstRowSlot(list) && placed.containsKey(slot) || left[0] == 0)) {
+                        focusBelowBar = -1;
+                        focusUnderBar();
+                    }
+                    if (left[0] == 0) rows.setMinimumHeight(0);
                     status.setVisibility(placed.isEmpty() ? View.VISIBLE : View.GONE);
                     if (placed.isEmpty() && left[0] == 0 && Tmdb.hasKey()) {
                         status.setText(Ui.tr("Não deu para buscar os títulos agora. Confira a internet da TV.", "Couldn't fetch titles now. Check the TV's internet."));
                     }
                 });
             });
+        }
+    }
+
+    /** The first section that goes under the bar (Continue watching sits above it). */
+    private static int firstRowSlot(List<Section> list) {
+        for (int i = 0; i < list.size(); i++) if (list.get(i).box == null) return i;
+        return -1;
+    }
+
+    /** After a pick on the bar: the first poster of the first row under it. */
+    private void focusUnderBar() {
+        if (bar == null || bar.getParent() != rows || menuOpen || overlay != null) return;
+        for (int i = rows.indexOfChild(bar) + 1; i < rows.getChildCount(); i++) {
+            View v = rows.getChildAt(i);
+            if (v != status && v.getVisibility() == View.VISIBLE && v.requestFocus()) return;
         }
     }
 
@@ -2213,6 +2239,8 @@ public class ExploreActivity extends Activity {
     private String[] pickedLang;    // {code, name}; null: the dot (Malayalam rows, everything else as it comes)
     private String[] pickedGenre;   // a GENRES row; null: every genre
     private LinearLayout cwBox;     // Continue watching sits here, above the bar
+    private View bar;
+    private int focusBelowBar = -1;  // the generation whose first row under the bar takes the focus (a pick on the bar)
 
     private String lang() {
         return pickedLang != null ? pickedLang[0] : "ml";
@@ -2462,6 +2490,8 @@ public class ExploreActivity extends Activity {
     /** The bar picked something: the rows under it are asked again; the banner, shelf and bar stay. */
     private void reloadRows() {
         int gen = ++generation;
+        focusBelowBar = gen;
+        rows.setMinimumHeight(rows.getHeight());   // the page keeps its length while the rows swap: no jump to the top
         for (View v : placed.values()) if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
         placed.clear();
         placedKeys.clear();
@@ -2494,12 +2524,10 @@ public class ExploreActivity extends Activity {
 
     private TvUi.Row appsLine;
 
-    /** Every app on a glass shelf; hold OK on one to move it. */
+    /** Every app in a row (no panel behind it); hold OK on one to move it. */
     private View appsRow() {
         FrameLayout panel = new FrameLayout(this);
-        panel.setBackground(HomeRows.glass(k));
-        panel.setClipToOutline(true);
-        panel.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+        panel.setClipChildren(false);
         TvUi.Row line = new TvUi.Row(this);
         line.setClipChildren(false);
         line.setClipToPadding(false);
