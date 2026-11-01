@@ -54,7 +54,17 @@ final class Images {
     }
 
     /** Shows the image in the view once it arrives; a view reused for another image in the meantime is left alone. */
+    /** Into a view with a fixed size (its layout params), the picture is decoded at that size; else as it comes. */
     static void load(ImageView view, String url) {
+        android.view.ViewGroup.LayoutParams lp = view.getLayoutParams();
+        load(view, url, lp != null && lp.width > 0 ? lp.width : 0, lp != null && lp.height > 0 ? lp.height : 0);
+    }
+
+    /**
+     * Decoded just big enough to fill w x h (cropped to fill, as the cards are), not at the file's size: a 1280x720
+     * channel picture in a 384x216 card takes a ninth of the memory. 0 x 0: as it comes.
+     */
+    static void load(ImageView view, String url, int w, int h) {
         MAIN.removeCallbacks(TRIM_LATER);   // a page with pictures is back: keep the cache
         if (dir == null) init(view.getContext());
         view.setTag(url);
@@ -62,27 +72,28 @@ final class Images {
             view.setImageDrawable(null);
             return;
         }
-        Bitmap hit = CACHE.get(url);
+        String key = w > 0 && h > 0 ? url + "#" + w + "x" + h : url;
+        Bitmap hit = CACHE.get(key);
         if (hit != null) {
             view.setImageBitmap(hit);
             return;
         }
         view.setImageDrawable(null);
         synchronized (WAITING) {
-            List<ImageView> views = WAITING.get(url);
+            List<ImageView> views = WAITING.get(key);
             if (views != null) {   // already on its way: this view gets it too
                 views.add(view);
                 return;
             }
             views = new ArrayList<>();
             views.add(view);
-            WAITING.put(url, views);
+            WAITING.put(key, views);
         }
         POOL.execute(() -> {
-            Bitmap b = fetch(url);
-            if (b != null) CACHE.put(url, b);
+            Bitmap b = fetch(url, w, h);
+            if (b != null) CACHE.put(key, b);
             List<ImageView> views;
-            synchronized (WAITING) { views = WAITING.remove(url); }
+            synchronized (WAITING) { views = WAITING.remove(key); }
             if (b == null || views == null) return;
             MAIN.post(() -> {
                 for (ImageView v : views) if (url.equals(v.getTag())) v.setImageBitmap(b);
@@ -92,9 +103,13 @@ final class Images {
 
     /** From the disk cache when fresh, otherwise downloaded and saved. */
     static Bitmap fetch(String url) {
+        return fetch(url, 0, 0);
+    }
+
+    static Bitmap fetch(String url, int w, int h) {
         File f = dir == null ? null : new File(dir, Integer.toHexString(url.hashCode()) + "-" + url.length());
         if (f != null && f.isFile() && System.currentTimeMillis() - f.lastModified() < TTL) {
-            Bitmap b = decode(f, url);
+            Bitmap b = decode(f, url, w, h);
             if (b != null) return b;
         }
         try {
@@ -112,12 +127,15 @@ final class Images {
             } finally {
                 c.disconnect();
             }
-            Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options(url));
-            if (b == null) return f != null && f.isFile() ? decode(f, url) : null;
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options(url, bounds, w, h));
+            if (b == null) return f != null && f.isFile() ? decode(f, url, w, h) : null;
             if (f != null) store(f, bytes);
             return b;
         } catch (Exception e) {
-            return f != null && f.isFile() ? decode(f, url) : null;   // offline: an old copy beats nothing
+            return f != null && f.isFile() ? decode(f, url, w, h) : null;   // offline: an old copy beats nothing
         }
     }
 
@@ -138,14 +156,34 @@ final class Images {
         }
     }
 
-    private static Bitmap decode(File f, String url) {
-        return BitmapFactory.decodeFile(f.getAbsolutePath(), options(url));
+    private static Bitmap decode(File f, String url, int w, int h) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(f.getAbsolutePath(), bounds);
+        return BitmapFactory.decodeFile(f.getAbsolutePath(), options(url, bounds, w, h));
     }
 
-    /** Photos in half the memory; PNGs (title logos) keep their transparency. */
-    private static BitmapFactory.Options options(String url) {
+    /**
+     * Photos in half the memory; PNGs (title logos) keep their transparency. With a size: halved while it still covers
+     * w x h, then scaled to just cover it.
+     */
+    private static BitmapFactory.Options options(String url, BitmapFactory.Options bounds, int w, int h) {
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inPreferredConfig = url.endsWith(".png") ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
+        int sw = bounds.outWidth, sh = bounds.outHeight;
+        if (w <= 0 || h <= 0 || sw <= 0 || sh <= 0) return o;
+        float cover = Math.max((float) w / sw, (float) h / sh);   // the scale at which the picture just fills the view
+        if (cover >= 1f) return o;
+        int needW = (int) Math.ceil(sw * cover), needH = (int) Math.ceil(sh * cover);   // >= w and >= h
+        int sample = 1;
+        while (sw / (sample * 2) >= needW && sh / (sample * 2) >= needH) sample *= 2;
+        o.inSampleSize = sample;
+        int after = sw / sample, target = needW;
+        if (after > target * 5 / 4) {   // still well over: scale the rest of the way while decoding
+            o.inScaled = true;
+            o.inDensity = after;
+            o.inTargetDensity = target;
+        }
         return o;
     }
 

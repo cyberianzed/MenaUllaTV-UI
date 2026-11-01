@@ -407,7 +407,7 @@ final class HomeRows {
     private static void load(ImageView img, String uri, int w, int h) {
         if (uri == null || uri.isEmpty()) return;
         if (uri.startsWith("http://") || uri.startsWith("https://")) {
-            Images.load(img, uri);
+            Images.load(img, uri, w, h);
             return;
         }
         img.setTag(Uri.parse(uri));   // not a String: Explore's release/restore of pictures leaves it alone
