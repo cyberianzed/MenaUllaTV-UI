@@ -231,6 +231,14 @@ final class Prefs {
 
     static void setAppChannels(org.json.JSONObject v) { put("app_channels", v.toString()); }
 
+    /** config.json "bar_font": the language · genre bar's face, "anton" (default), "bebas" or "black". */
+    static String barFont() {
+        String v = sp().getString("bar_font", "anton");
+        return v.equals("bebas") || v.equals("black") ? v : "anton";
+    }
+
+    static void setBarFont(String v) { put("bar_font", v); }
+
     /** config.json "youtube_channels": the YouTube row's channels instead of the built-in picks (see YouTubeRow). */
     static org.json.JSONArray youtubeChannels() {
         try {

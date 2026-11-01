@@ -96,6 +96,11 @@ final class HomeApps {
         {"spotify", "Spotify", "com.spotify.tv.android", "1DB954", "", "1"},
     };
     static final int MAX_SHELF = 8;
+
+    /** How many the shelf editor takes: the classic dock fits MAX_SHELF; Explore's apps row scrolls, so it takes more. */
+    static int shelfLimit() {
+        return "explore".equals(Prefs.homeStyle()) ? 20 : MAX_SHELF;
+    }
     /** Live TV apps of some brands (the antenna's channels open through the standard Android request first). */
     static final String[] LIVE_TV_APPS = {"com.tcl.tv", "com.google.android.tv", "com.mediatek.wwtv.tvcenter", "com.sony.dtv.tvx"};
     /** Kept out of "All Apps" (only hidden, still installed). Add the ones your TV shows that you never use. */

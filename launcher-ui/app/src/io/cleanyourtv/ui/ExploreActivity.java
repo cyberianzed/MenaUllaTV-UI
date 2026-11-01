@@ -2550,17 +2550,36 @@ public class ExploreActivity extends Activity {
         return hs;
     }
 
-    private static final android.graphics.Typeface CONDENSED = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL);
+    /**
+     * The bar's face, config.json "bar_font": "anton" (tall, condensed; the default), "bebas" (Bebas Neue, like Netflix's
+     * logo) or "black" (Roboto Black stretched wide). {typeface, size step, letter spacing, horizontal scale}.
+     */
+    private Object[] barFace;
+
+    private Object[] barFace() {
+        if (barFace != null) return barFace;
+        String f = Prefs.barFont();
+        android.graphics.Typeface t = null;
+        try {
+            if (f.equals("anton")) t = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/Anton-Regular.ttf");
+            else if (f.equals("bebas")) t = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/BebasNeue-Regular.ttf");
+        } catch (RuntimeException ignored) {   // a missing file: the system's heavy face below
+        }
+        if (f.equals("bebas") && t != null) barFace = new Object[] {t, 12, 0.06f, 1f};
+        else if (t != null) barFace = new Object[] {t, 4, 0.04f, 1f};
+        else barFace = new Object[] {android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL), 0, 0.02f, 1.15f};
+        return barFace;
+    }
 
     /**
-     * A wordmark in Netflix's category style: heavy capitals stretched a little wide, one colour, no box.
-     * Languages a size up from the genres.
+     * A wordmark in Netflix's category style: heavy capitals, one colour, no box. Languages a size up from the genres.
      */
     private TextView word(String text, boolean heavy) {
-        TextView t = TvUi.text(this, k, heavy ? 40 : 36, CONDENSED, TvUi.FAINT);
+        Object[] face = barFace();
+        TextView t = TvUi.text(this, k, (heavy ? 40 : 36) + (int) face[1], (android.graphics.Typeface) face[0], TvUi.FAINT);
         t.setText(text);
-        t.setTextScaleX(1.15f);
-        t.setLetterSpacing(heavy ? 0.03f : 0.02f);
+        t.setTextScaleX((float) face[3]);
+        t.setLetterSpacing((float) face[2] + (heavy ? 0.01f : 0));
         t.setPadding(Math.round(30 * k), Math.round(14 * k), Math.round(30 * k), Math.round(14 * k));
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);

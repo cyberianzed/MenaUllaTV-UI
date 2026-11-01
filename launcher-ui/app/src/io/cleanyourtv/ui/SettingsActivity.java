@@ -328,9 +328,8 @@ public class SettingsActivity extends Activity {
             c.drawText(NAME, cx, 612 * k, title);
             c.drawText("Muriyo thodakkunnilla, TV engilum mena aayitt irikkatte.", cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
-            c.drawText("Jose K James · github.com/cyberianzed/cleanyourtv-ui/tree/explore-home", cx, 742 * k, version);
-            c.drawText(Ui.tr("Baseado no CleanYourTV UI de Matheus Caldeira · github.com/matheus-caldeira/cleanyourtv-ui",
-                    "Based on CleanYourTV UI by Matheus Caldeira · github.com/matheus-caldeira/cleanyourtv-ui"), cx, 780 * k, version);
+            c.drawText("Jose K James · github.com/cyberianzed/cleanyourtv-ui", cx, 742 * k, version);
+            c.drawText(Ui.tr("Baseado no CleanYourTV UI de Matheus Caldeira", "Based on CleanYourTV UI by Matheus Caldeira"), cx, 780 * k, version);
 
             if (screen == MAIN) drawMain(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);
         }
@@ -768,8 +767,12 @@ public class SettingsActivity extends Activity {
         private void toggleShelfApp() {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
-            else if (shelfOrder.size() < HomeApps.MAX_SHELF) shelfOrder.add(pkg);
-            else return;
+            else if (shelfOrder.size() < HomeApps.shelfLimit()) shelfOrder.add(pkg);
+            else {   // full: say so, rather than an OK that does nothing
+                android.widget.Toast.makeText(getContext(), Ui.tr("A prateleira está cheia (" + HomeApps.shelfLimit() + "). Tire um app primeiro.",
+                        "The shelf is full (" + HomeApps.shelfLimit() + "). Take an app off first."), android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
             refreshShelfRows(pkg);
         }
 
@@ -806,9 +809,9 @@ public class SettingsActivity extends Activity {
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            c.drawText(Ui.tr("OK põe ou tira (até " + HomeApps.MAX_SHELF + "). ← → mudam a ordem. Menu (≡) ou segurar OK na Home: logo e cor.",
-                    "OK adds or removes (up to " + HomeApps.MAX_SHELF + "). ← → change the order.",
-                    "OK pone o quita del estante (hasta " + HomeApps.MAX_SHELF + "). ← → cambian el orden."), LIST_X * k + 30 * k, hy, hint);
+            c.drawText(Ui.tr("OK põe ou tira (até " + HomeApps.shelfLimit() + "). ← → mudam a ordem. Menu (≡) ou segurar OK na Home: logo e cor.",
+                    "OK adds or removes (up to " + HomeApps.shelfLimit() + "). ← → change the order.",
+                    "OK pone o quita del estante (hasta " + HomeApps.shelfLimit() + "). ← → cambian el orden."), LIST_X * k + 30 * k, hy, hint);
         }
 
         private void openPicker(int which) {
