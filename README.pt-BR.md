@@ -1,6 +1,6 @@
 # CleanYourTV UI
 
-[English](README.md) · **Português**
+[English](README.cleanyourtv-ui.md) · **Português**
 
 Uma tela inicial para Android TV com cara de Apple TV, em cima do **[CleanYourTV](https://github.com/Gathin23/cleanyourtv)**
 (que tira o lixo de fábrica da TV) e com o visual do **[Free My TV](https://github.com/simbasjungles/free-my-tv)**.

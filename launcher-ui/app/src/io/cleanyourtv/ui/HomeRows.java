@@ -107,14 +107,6 @@ final class HomeRows {
         return card;
     }
 
-    /** Frosted glass, the Apple TV way but without a blur (too costly on a TV): a light veil, a hairline and round corners. */
-    static GradientDrawable glass(float k) {
-        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {0x29FFFFFF, 0x14FFFFFF});
-        d.setCornerRadius(36 * k);
-        d.setStroke(Math.max(1, Math.round(1.5f * k)), 0x2EFFFFFF);
-        return d;
-    }
-
     // MARK: - What other apps share: Continue Watching and preview channels
 
     static final class Card {
