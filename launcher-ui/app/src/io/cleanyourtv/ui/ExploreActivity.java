@@ -251,6 +251,7 @@ public class ExploreActivity extends Activity {
         scroll.addView(page);
         root.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(burger(), burgerParams());
+        if (isHome()) root.addView(homeSettings(), homeSettingsParams());
         shade = new View(this);
         shade.setBackgroundColor(0xB3000000);
         shade.setAlpha(0);
@@ -481,6 +482,41 @@ public class ExploreActivity extends Activity {
         return lp;
     }
 
+    /** Home Settings, a translucent round button at the top right; Right from the menu button reaches it. */
+    private View settingsButton;
+
+    private View homeSettings() {
+        FrameLayout b = new FrameLayout(this);
+        TvUi.Icon icon = new TvUi.Icon(this, "settings", 30 * k);
+        icon.color(0xD9FFFFFF);
+        b.addView(icon, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        b.setBackground(TvUi.round(0x33FFFFFF, 34 * k));
+        b.setId(View.generateViewId());
+        b.setFocusable(true);
+        b.setFocusableInTouchMode(true);
+        b.setContentDescription(Ui.tr("Ajustes do Início", "Home Settings"));
+        b.setOnClickListener(v -> {
+            if (!HomeApps.open(this, HomeApps.settings(), v, 0, 0, v.getWidth(), v.getHeight()))
+                Toast.makeText(this, Ui.tr("Não deu para abrir os ajustes", "Couldn't open Home Settings"), Toast.LENGTH_SHORT).show();
+        });
+        b.setOnFocusChangeListener((v, has) -> {
+            b.setBackground(TvUi.round(has ? TvUi.INK : 0x33FFFFFF, 34 * k));
+            icon.color(has ? 0xFF14161A : 0xD9FFFFFF);
+            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f).setDuration(140).start();
+        });
+        settingsButton = b;
+        return b;
+    }
+
+    /** Level with the menu button, as far from the right edge as the bars are from the left. */
+    private FrameLayout.LayoutParams homeSettingsParams() {
+        int size = Math.round(68 * k);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size, Gravity.TOP | Gravity.END);
+        lp.rightMargin = Math.round(52 * k);
+        lp.topMargin = Math.round(66 * k) + Math.round(11 * k) - size / 2;   // centred on the bars
+        return lp;
+    }
+
     private View buildMenu() {
         TvUi.Scroll box = new TvUi.Scroll(this);
         box.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {0xFC12151C, 0xF512151C}));
@@ -624,6 +660,7 @@ public class ExploreActivity extends Activity {
         if (hero != null) restartHero();
     }
 
+    private View shelfApp;   // the app Up left from: Down from the banner comes back to it
     private long keyAt, pageAt;   // the banner arrives late: it takes the focus only if no key was pressed since
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
@@ -635,6 +672,16 @@ public class ExploreActivity extends Activity {
             lastKeyAt = keyAt;
         }
         if (isHome() && RemoteKeys.onKey(this, e)) return true;
+        if (code == KeyEvent.KEYCODE_SETTINGS || (code == KeyEvent.KEYCODE_UNKNOWN && e.getScanCode() == 240)) {
+            // The remote's Settings button (HID 0x0C009F): this TV maps it to no key, so it would do nothing at all.
+            if (!down && !e.isCanceled()) {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (RuntimeException ignored) {
+                }
+            }
+            return true;
+        }
         if (moving != null) return moveKey(code, down);
         if (isHome() && down && e.isLongPress() && (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER)) {
             View f = getCurrentFocus();   // OK held on a remote: the key repeats as a long press
@@ -682,8 +729,31 @@ public class ExploreActivity extends Activity {
                 burger.requestFocus();
                 return true;
             }
+            if (f == burger && code == KeyEvent.KEYCODE_DPAD_RIGHT && settingsButton != null) {
+                settingsButton.requestFocus();
+                return true;
+            }
             if (f == burger && (code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
                 focusPage();
+                return true;
+            }
+            if (f != null && f == settingsButton) {
+                if (code == KeyEvent.KEYCODE_DPAD_LEFT) burger.requestFocus();
+                else if (code == KeyEvent.KEYCODE_DPAD_DOWN) focusPage();
+                else if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_BACK)
+                    return super.dispatchKeyEvent(e);
+                return true;
+            }
+            // The shelf overlaps the banner's picture, so the system's own search could skip it: say where to go.
+            boolean shelf = appsLine != null && appsLine.getChildCount() > 0;
+            if (shelf && f == hero && code == KeyEvent.KEYCODE_DPAD_DOWN) {
+                View app = shelfApp != null && shelfApp.getParent() == appsLine ? shelfApp : appsLine.getChildAt(0);
+                app.requestFocus();
+                return true;
+            }
+            if (shelf && f != null && f.getParent() == appsLine && code == KeyEvent.KEYCODE_DPAD_UP && hero != null && !heroList.isEmpty()) {
+                shelfApp = f;
+                hero.requestFocus();
                 return true;
             }
             if (f == burger) return code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER && code != KeyEvent.KEYCODE_BACK
@@ -851,8 +921,7 @@ public class ExploreActivity extends Activity {
         else if (homeScreen) rowsLp.topMargin = Math.round(90 * k);
         page.addView(rows, rowsLp);
         if (homeScreen) {
-            rows.addView(appsRow());
-            rows.addView(shortcutsRow());
+            rows.addView(appsRow());   // Wi-Fi and TV settings: the remote's Settings key; Home Settings: the corner button
             cwBox = new LinearLayout(this);
             cwBox.setOrientation(LinearLayout.VERTICAL);
             cwBox.setClipChildren(false);
@@ -924,6 +993,7 @@ public class ExploreActivity extends Activity {
     }
 
     private void load(int gen, List<Section> list, boolean personalOnly) {
+        if (io.isShutdown()) return;   // a reply that arrived after recreate() (a new config.json) closed this screen
         int[] left = {0};
         for (Section s : list) if (!personalOnly || s.personal) left[0]++;
         for (int i = 0; i < list.size(); i++) {
@@ -2123,6 +2193,11 @@ public class ExploreActivity extends Activity {
         return apps;
     }
 
+    /** Videos worth watching on YouTube (a fifth Malayalam), opened in TizenTube. */
+    private Section youTube() {
+        return Section.cards("YouTube", () -> YouTubeRow.videos(this)).personal();
+    }
+
     // MARK: - The home screen's rows, and the language · genre bar that steers them
 
     /** The bar's languages, nearest the dot first: {TMDB code, name}. */
@@ -2133,6 +2208,8 @@ public class ExploreActivity extends Activity {
     /** The bar's genres, nearest the dot first (keys of GENRES). */
     private static final String[] BAR_GENRES = {"acao", "comedia", "suspense", "drama", "romance", "terror", "familia", "crime",
             "ficcao", "fantasia", "misterio", "aventura", "animacao", "documentarios"};
+    /** "Shows" on the bar, first after the dot: not a genre but series only (seasons and episodes), any genre. */
+    private static final String[] SERIES = {"series", "Séries", "Shows", null, null, null, null, null};
     private String[] pickedLang;    // {code, name}; null: the dot (Malayalam rows, everything else as it comes)
     private String[] pickedGenre;   // a GENRES row; null: every genre
     private LinearLayout cwBox;     // Continue watching sits here, above the bar
@@ -2167,6 +2244,7 @@ public class ExploreActivity extends Activity {
     private boolean matches(Tmdb.Title t) {
         if (pickedLang != null && !pickedLang[0].equals(t.lang)) return false;
         if (pickedGenre == null) return true;
+        if (pickedGenre == SERIES) return "tv".equals(t.kind);
         for (int g : t.genres) {
             if (String.valueOf(g).equals(pickedGenre[3]) || String.valueOf(g).equals(pickedGenre[4])) return true;
         }
@@ -2178,6 +2256,7 @@ public class ExploreActivity extends Activity {
         cw.box = cwBox;
         out.add(cw);
         if (!Tmdb.hasKey()) {
+            out.add(youTube());
             channels(out);
             return;
         }
@@ -2191,37 +2270,28 @@ public class ExploreActivity extends Activity {
                 .more(discoverPath("movie", trending), "movie"));
         out.add(new Section(Ui.tr("Minha lista", "My list"), () -> Tmdb.watchlist(this)).personal().more(() -> showPage(LIST)));
         out.add(new Section(Ui.tr("Recomendado para você", "Recommended for you"), () -> prefer(forYou())).personal());
-        List<Tmdb.Title> seen = Tmdb.seen(this);
-        Tmdb.Title last = seen.isEmpty() ? null : seen.get(0);
-        if (last != null) {
-            out.add(new Section(Ui.tr("Porque você viu ", "Because you watched ") + last.name,
-                    () -> prefer(fresh(Tmdb.titles(Tmdb.get("/" + last.kind + "/" + last.id + "/recommendations"), last.kind))))
-                    .personal().more("/" + last.kind + "/" + last.id + "/recommendations", last.kind));
+        // Netflix, Prime Video… as their apps share them; an app with no channel of its own (Sony Liv) gets its
+        // trending row right after Prime Video's.
+        List<Section> shared = new ArrayList<>();
+        Set<String> apps = channels(shared);
+        int prime = -1;
+        for (int i = 0; i < shared.size(); i++) {
+            String t = shared.get(i).title.toLowerCase(Locale.ROOT);
+            if (t.contains("prime") || t.contains("amazon")) prime = i + 1;
         }
-        Set<String> shared = channels(out);   // Netflix, Prime Video… as their apps share them
+        List<Section> own = new ArrayList<>();
         int m = 0;
-        for (Service s : services()) {   // right after them, an app with no channel of its own (Sony Liv): its trending row
+        for (Service s : services()) {
             if (m++ >= 6) break;
-            if (shared.contains(s.key)) continue;
-            out.add(new Section(s.name, () -> mix(
+            if (apps.contains(s.key)) continue;
+            own.add(new Section(s.name, () -> mix(
                     discover("tv", "&with_watch_providers=" + s.ids + "&sort_by=popularity.desc"),
                     discover("movie", "&with_watch_providers=" + s.ids + "&sort_by=popularity.desc")))
                     .more(() -> showPage(SERVICE + s.key)));
         }
-        boolean anime = false;
-        int n = 0;
-        for (Service s : services()) {
-            if (n++ >= 6) break;
-            String p = "&with_watch_providers=" + s.ids + "&with_original_language=" + lang() + "&sort_by=primary_release_date.desc"
-                    + "&primary_release_date.lte=" + day(0) + "&vote_count.gte=3" + genreParam("movie");
-            out.add(new Section(langName() + Ui.tr(" na ", " on ") + s.name + picked(), () -> discover("movie", p))
-                    .more(discoverPath("movie", p), "movie"));
-            if (!anime && s.name.toLowerCase(Locale.ROOT).contains("prime")) {
-                anime = true;
-                out.add(animeSection());
-            }
-        }
-        if (!anime) out.add(animeSection());
+        shared.addAll(prime < 0 ? shared.size() : prime, own);
+        out.add(youTube());   // above Netflix's
+        out.addAll(shared);
         // Explore's general rows (trending today, this week, kids, people...) stay in Explore: the bar steers the home screen.
     }
 
@@ -2232,6 +2302,10 @@ public class ExploreActivity extends Activity {
     private void pickedSections(List<Section> out) {
         String name = ((pickedLang != null ? pickedLang[1] : "") + (pickedGenre != null ? " " + pickedGenre[2] : "")).trim();
         String langP = pickedLang == null ? "" : "&with_original_language=" + pickedLang[0];
+        if (pickedGenre == SERIES) {
+            showSections(out, name, langP);
+            return;
+        }
         String films = langP + genreParam("movie"), shows = langP + genreParam("tv");
         String trending = films + "&sort_by=popularity.desc&primary_release_date.gte=" + day(120) + "&primary_release_date.lte=" + day(0);
         out.add(new Section(Ui.tr("Em alta · ", "Trending · ") + name, () -> discover("movie", trending)).more(discoverPath("movie", trending), "movie"));
@@ -2255,15 +2329,31 @@ public class ExploreActivity extends Activity {
         out.add(new Section(Ui.tr("Os mais vistos · ", "Most watched · ") + name, () -> discover("movie", most)).more(discoverPath("movie", most), "movie"));
     }
 
+    /** "Shows" picked: series only, in the picked language if any; each opens on its seasons and episodes. */
+    private void showSections(List<Section> out, String name, String langP) {
+        String trending = langP + "&sort_by=popularity.desc&first_air_date.gte=" + day(365) + "&vote_count.gte=3";
+        out.add(new Section(Ui.tr("Em alta · ", "Trending · ") + name, () -> discover("tv", trending)).more(discoverPath("tv", trending), "tv"));
+        out.add(new Section(Ui.tr("Minha lista · ", "My list · ") + name, () -> only(Tmdb.watchlist(this))).personal().more(() -> showPage(LIST)));
+        out.add(new Section(Ui.tr("Para você · ", "For you · ") + name, () -> only(forYou())).personal());
+        String fresh = langP + "&sort_by=first_air_date.desc&first_air_date.lte=" + day(0) + "&vote_count.gte=3";
+        out.add(new Section(Ui.tr("Séries novas · ", "New shows · ") + name, () -> discover("tv", fresh)).more(discoverPath("tv", fresh), "tv"));
+        int n = 0;
+        for (Service s : services()) {
+            if (n++ >= 6) break;
+            String q = langP + "&with_watch_providers=" + s.ids + "&sort_by=popularity.desc";
+            out.add(new Section(name + Ui.tr(" na ", " on ") + s.name, () -> discover("tv", q)).more(discoverPath("tv", q), "tv"));
+        }
+        String best = langP + "&sort_by=vote_average.desc&vote_count.gte=" + (pickedLang != null && !pickedLang[0].equals("en") ? 40 : 400);
+        out.add(new Section(Ui.tr("Mais bem avaliadas · ", "Top rated · ") + name, () -> discover("tv", best)).more(discoverPath("tv", best), "tv"));
+        String most = langP + "&sort_by=vote_count.desc";
+        out.add(new Section(Ui.tr("As mais vistas · ", "Most watched · ") + name, () -> discover("tv", most)).more(discoverPath("tv", most), "tv"));
+    }
+
     /** Only what the bar picked (personal rows, which TMDB can't filter for us). */
     private List<Tmdb.Title> only(List<Tmdb.Title> list) {
         List<Tmdb.Title> out = new ArrayList<>();
         for (Tmdb.Title t : list) if (matches(t)) out.add(t);
         return out;
-    }
-
-    private Section animeSection() {
-        return new Section(Ui.tr("Animes em alta", "Trending anime"), () -> fetch(Filter.of("all", "anime"), 1)).more(() -> showPage(ANIME));
     }
 
     /**
@@ -2305,8 +2395,10 @@ public class ExploreActivity extends Activity {
         });
         dotRef[0] = dot;
         line.addView(dot);
-        for (String key : BAR_GENRES) {
-            String[] g = genre(key);
+        List<String[]> bar = new ArrayList<>();
+        bar.add(SERIES);
+        for (String key : BAR_GENRES) bar.add(genre(key));
+        for (String[] g : bar) {
             if (g == null) continue;
             TextView t = word(g[2].toUpperCase(Locale.ROOT), false);
             t.setOnClickListener(v -> {
@@ -2332,17 +2424,17 @@ public class ExploreActivity extends Activity {
         return hs;
     }
 
-    private static final android.graphics.Typeface CONDENSED =
-            android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD);
+    private static final android.graphics.Typeface CONDENSED = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL);
 
     /**
-     * A wordmark in Netflix's category style: bold condensed capitals, tall and squared off, one colour, no box.
+     * A wordmark in Netflix's category style: heavy capitals stretched a little wide, one colour, no box.
      * Languages a size up from the genres.
      */
     private TextView word(String text, boolean heavy) {
         TextView t = TvUi.text(this, k, heavy ? 40 : 36, CONDENSED, TvUi.FAINT);
         t.setText(text);
-        t.setLetterSpacing(heavy ? 0.04f : 0.02f);
+        t.setTextScaleX(1.15f);
+        t.setLetterSpacing(heavy ? 0.03f : 0.02f);
         t.setPadding(Math.round(30 * k), Math.round(14 * k), Math.round(30 * k), Math.round(14 * k));
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);
@@ -2435,35 +2527,6 @@ public class ExploreActivity extends Activity {
             });
         });
         return panel;
-    }
-
-    /** All apps, Wi-Fi, the home screen's settings and the TV's, as pills under the shelf. */
-    private View shortcutsRow() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setClipChildren(false);
-        bar.setClipToPadding(false);
-        bar.setPadding(Math.round(6 * k), Math.round(34 * k), 0, Math.round(6 * k));
-        List<HomeApps.Item> items = new ArrayList<>();
-        try {
-            for (HomeApps.Item it : HomeApps.shortcuts(this)) if (it.kind != HomeApps.ALL_APPS) items.add(it);
-        } catch (RuntimeException ignored) {
-        }
-        items.addAll(0, HomeApps.drawerShortcuts());
-        for (HomeApps.Item it : items) {
-            View b = TvUi.iconButton(this, k, it.symbol, it.label, v -> {
-                if (it.kind == HomeApps.ALL_APPS) showPage(APPS);
-                else if (!HomeApps.open(this, it, v, 0, 0, v.getWidth(), v.getHeight()))
-                    Toast.makeText(this, Ui.tr("Não deu para abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = Math.round(18 * k);
-            bar.addView(b, lp);
-        }
-        TvUi.HScroll hs = new TvUi.HScroll(this, Math.round(200 * k));
-        hs.addView(bar);
-        return hs;
     }
 
     /** Every app on the TV, by name, as a grid of their TV art. */

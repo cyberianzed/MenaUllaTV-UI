@@ -156,6 +156,7 @@ final class HomeRows {
         Set<String> apps = launchablePackages(c);
         PackageManager pm = c.getPackageManager();
         org.json.JSONObject only = Prefs.appChannels();
+        org.json.JSONArray drop = Prefs.hiddenChannels();
         try (Cursor q = c.getContentResolver().query(TvContract.Channels.CONTENT_URI, null, null, null, null)) {
             while (q != null && q.moveToNext() && out.size() < 8) {
                 if (!TvContract.Channels.TYPE_PREVIEW.equals(str(q, "type"))) continue;
@@ -171,6 +172,7 @@ final class HomeRows {
                 org.json.JSONArray keep = only.optJSONArray(pkg);
                 if (keep != null && !listed(keep, name)) continue;   // config.json "app_channels" keeps only these
                 String title = name.isEmpty() || name.equalsIgnoreCase(app) ? app : app + " · " + name;
+                if (listed(drop, name) || listed(drop, title)) continue;   // config.json "hidden_channels"
                 out.add(new Object[] {title, num(q, "_id", -1), pkg});
             }
         } catch (RuntimeException e) {

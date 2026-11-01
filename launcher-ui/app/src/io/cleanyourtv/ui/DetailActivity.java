@@ -426,6 +426,8 @@ public class DetailActivity extends Activity {
                 line.addView(chip(pid, p.optString("provider_name"), p.optString("logo_path"), type[1]));
             }
         }
+        View nuvio = nuvioChip();
+        if (nuvio != null) line.addView(nuvio);
         if (line.getChildCount() == 0) {
             TextView none = TvUi.text(this, k, 26, Ui.regular, TvUi.DIM);
             none.setText(Ui.tr("Não está em nenhum serviço de streaming no Brasil agora.", "Not on any streaming service in the region right now."));
@@ -436,14 +438,49 @@ public class DetailActivity extends Activity {
 
     private View chip(int pid, String name, String logo, String type) {
         String app = Providers.app(this, pid, name);
-        LinearLayout chip = new LinearLayout(this);
-        chip.setOrientation(LinearLayout.HORIZONTAL);
-        chip.setGravity(Gravity.CENTER_VERTICAL);
-        chip.setPadding(Math.round(16 * k), Math.round(16 * k), Math.round(30 * k), Math.round(16 * k));
         ImageView img = new ImageView(this);
         img.setClipToOutline(true);
         img.setBackground(TvUi.round(0x00000000, 12 * k));
         Images.load(img, logo.isEmpty() ? null : Tmdb.LOGO + logo);
+        TextView s = TvUi.text(this, k, 21, Ui.regular, TvUi.DIM);
+        s.setText(type + "  ·  " + (app != null ? Ui.tr("abre ", "opens ") + Providers.label(this, app) : Ui.tr("sem app na TV", "no app on the TV")));
+        if (app != null) chipNotes.add(new Object[] {app, s, type});
+        return chipBox(img, name, s, v -> {
+            if (app != null) watch(app);
+            else Toast.makeText(this, Ui.tr("Nenhum app para " + name + ". Escolha um em Ajustes › Serviços.",
+                    "No app for " + name + ". Pick one in Settings › Services."), Toast.LENGTH_LONG).show();
+        });
+    }
+
+    private static final String NUVIO = "com.nuvio.app";
+
+    /** Nuvio, when it's on the TV: it finds a stream for any title, so every title gets it (nuvio://tmdb/<type>/<id>). */
+    private View nuvioChip() {
+        android.graphics.drawable.Drawable icon;
+        try {
+            icon = getPackageManager().getApplicationIcon(NUVIO);
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return null;
+        }
+        ImageView img = new ImageView(this);
+        img.setClipToOutline(true);
+        img.setBackground(TvUi.round(0x00000000, 12 * k));
+        img.setImageDrawable(icon);
+        TextView s = TvUi.text(this, k, 21, Ui.regular, TvUi.DIM);
+        s.setText(Ui.tr("Qualquer título  ·  abre o título no Nuvio", "Any title  ·  opens the title in Nuvio"));
+        return chipBox(img, "Nuvio", s, v -> {
+            if (title != null) Tmdb.setSeen(this, title, true);
+            String url = "nuvio://tmdb/" + ("movie".equals(kind) ? "movie" : "series") + "/" + id;
+            if (!DeepLinks.open(this, NUVIO, url)) RemoteKeys.run(this, NUVIO);
+        });
+    }
+
+    /** A where-to-watch chip: the service's logo, its name, and a line on what OK does. */
+    private View chipBox(ImageView img, String name, TextView s, View.OnClickListener click) {
+        LinearLayout chip = new LinearLayout(this);
+        chip.setOrientation(LinearLayout.HORIZONTAL);
+        chip.setGravity(Gravity.CENTER_VERTICAL);
+        chip.setPadding(Math.round(16 * k), Math.round(16 * k), Math.round(30 * k), Math.round(16 * k));
         int size = Math.round(64 * k);
         chip.addView(img, new LinearLayout.LayoutParams(size, size));
         LinearLayout texts = new LinearLayout(this);
@@ -451,19 +488,12 @@ public class DetailActivity extends Activity {
         texts.setPadding(Math.round(18 * k), 0, 0, 0);
         TextView n = TvUi.text(this, k, 25, Ui.medium, TvUi.INK);
         n.setText(name);
-        TextView s = TvUi.text(this, k, 21, Ui.regular, TvUi.DIM);
-        s.setText(type + "  ·  " + (app != null ? Ui.tr("abre ", "opens ") + Providers.label(this, app) : Ui.tr("sem app na TV", "no app on the TV")));
-        if (app != null) chipNotes.add(new Object[] {app, s, type});
         s.setPadding(0, Math.round(6 * k), 0, 0);
         texts.addView(n);
         texts.addView(s);
         chip.addView(texts);
         TvUi.softFocus(chip, k, 18 * k);
-        chip.setOnClickListener(v -> {
-            if (app != null) watch(app);
-            else Toast.makeText(this, Ui.tr("Nenhum app para " + name + ". Escolha um em Ajustes › Serviços.",
-                    "No app for " + name + ". Pick one in Settings › Services."), Toast.LENGTH_LONG).show();
-        });
+        chip.setOnClickListener(click);
         return chip;
     }
 
