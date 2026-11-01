@@ -130,12 +130,10 @@ accept the prompt on the TV, or grant it with
 `adb shell pm grant io.cleanyourtv.ui android.permission.READ_TV_LISTINGS`. Only what apps share is shown: some
 apps keep their Continue Watching inside Google TV's own home screen.
 
-Switch between the two home screens:
-
-```bash
-adb shell cmd package set-home-activity --user 0 io.cleanyourtv.ui/.ExploreHomeActivity   # Explore-style
-adb shell cmd package set-home-activity --user 0 io.cleanyourtv.ui/.HomeActivity          # classic
-```
+Switch between the two home screens with `"home_style": "explore"` or `"classic"` in config.json (push it with
+`config.sh`, then press Home). The app turns its own home activities on and off, because Android 14 doesn't let the
+shell do it. Both answer Home, so after the first switch also run
+`adb shell cmd package set-home-activity --user 0 io.cleanyourtv.ui/.ExploreHomeActivity` (or `.HomeActivity`).
 
 ## More
 
