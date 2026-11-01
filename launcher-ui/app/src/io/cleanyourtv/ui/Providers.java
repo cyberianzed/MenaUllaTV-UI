@@ -35,6 +35,8 @@ final class Providers {
     /** Part of a TMDB service name (lowercase) → the official TV apps, first installed wins. */
     private static final String[][] APPS = {
         {"netflix", "com.netflix.ninja"},
+        {"sony liv", "com.sonyliv"},
+        {"sonyliv", "com.sonyliv"},
         {"amazon prime video", "com.amazon.amazonvideo.livingroom"},
         {"prime video", "com.amazon.amazonvideo.livingroom"},
         {"disney plus", "com.disney.disneyplus"},

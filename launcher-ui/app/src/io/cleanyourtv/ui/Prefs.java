@@ -217,6 +217,20 @@ final class Prefs {
 
     static void setHidden(List<String> packages) { put("hidden", String.join(",", packages)); }
 
+    /**
+     * config.json "app_channels": an app's preview channels to show on the Explore-style home, by name
+     * ({"com.app": ["Movie Recommended"]}); an app not listed shows all of its channels, an empty list none.
+     */
+    static org.json.JSONObject appChannels() {
+        try {
+            return new org.json.JSONObject(sp().getString("app_channels", "{}"));
+        } catch (org.json.JSONException e) {
+            return new org.json.JSONObject();
+        }
+    }
+
+    static void setAppChannels(org.json.JSONObject v) { put("app_channels", v.toString()); }
+
     // MARK: - Custom tiles
 
     /** "logo source|#RRGGBB" for a styled shelf tile, or "" (CustomTiles). */

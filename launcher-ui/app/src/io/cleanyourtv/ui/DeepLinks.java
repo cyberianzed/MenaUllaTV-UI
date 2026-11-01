@@ -27,7 +27,7 @@ final class DeepLinks {
 
     /** App package → link to the title in it ("tv" or "movie", TMDB id); empty when Wikidata has none. */
     static Map<String, String> find(Context c, String kind, int id, String name) {
-        String key = kind + ":" + id;
+        String key = "v2:" + kind + ":" + id;   // v2: JustWatch's links too (Sony Liv), so older answers are asked again
         synchronized (CACHE) {
             if (CACHE.containsKey(key)) return CACHE.get(key);
         }
@@ -50,6 +50,7 @@ final class DeepLinks {
             }
         }
         Map<String, String> out = new HashMap<>();
+        boolean complete = true;
         try {
             String prop = kind.equals("movie") ? "P4947" : "P4983";
             JSONArray hits = new JSONObject(get("https://www.wikidata.org/w/api.php?action=query&list=search&format=json&srsearch=haswbstatement:"
@@ -75,12 +76,64 @@ final class DeepLinks {
                 if ((v = value(claims, "P8055")) != null) out.put("com.amazon.amazonvideo.livingroom", "https://app.primevideo.com/detail?gti=" + v);
             }
         } catch (Exception e) {
-            AppLog.w("deep link " + key + ": " + e.getMessage());
-            return out;    // not cached: the next try may reach Wikidata
+            AppLog.w("deep link " + key + " (Wikidata): " + e.getMessage());
+            complete = false;
         }
+        try {
+            justWatch(c, kind, id, name, out);
+        } catch (Exception e) {
+            AppLog.w("deep link " + key + " (JustWatch): " + e.getMessage());
+            complete = false;
+        }
+        if (!complete) return out;    // not cached: the next try may reach them both
         synchronized (CACHE) { CACHE.put(key, out); }
         sp.edit().putString(key, System.currentTimeMillis() + "|" + new JSONObject(out)).apply();
         return out;
+    }
+
+    private static final String JUSTWATCH_QUERY = "query GetSearchTitles($country: Country!, $language: Language!, $first: Int!, "
+            + "$filter: TitleFilter, $offerFilter: OfferFilter!) { popularTitles(country: $country, first: $first, filter: $filter) "
+            + "{ edges { node { objectType content(country: $country, language: $language) { title externalIds { imdbId tmdbId } } "
+            + "offers(country: $country, platform: WEB, filter: $offerFilter) { monetizationType standardWebURL package { clearName } } } } } }";
+
+    /**
+     * The services Wikidata has no ids for (Sony Liv and other Indian apps): JustWatch, where TMDB's "where to watch"
+     * comes from, has each one's page for the title. Matched by TMDB id, so a film with the same name can't slip in.
+     */
+    private static void justWatch(Context c, String kind, int id, String name, Map<String, String> out) throws Exception {
+        JSONObject variables = new JSONObject().put("country", Tmdb.region()).put("language", "en").put("first", 5)
+                .put("filter", new JSONObject().put("searchQuery", name)).put("offerFilter", new JSONObject().put("bestOnly", true));
+        String body = new JSONObject().put("operationName", "GetSearchTitles").put("variables", variables)
+                .put("query", JUSTWATCH_QUERY).toString();
+        HttpURLConnection h = (HttpURLConnection) new URL("https://apis.justwatch.com/graphql").openConnection();
+        h.setConnectTimeout(6000);
+        h.setReadTimeout(8000);
+        h.setRequestMethod("POST");
+        h.setDoOutput(true);
+        h.setRequestProperty("Content-Type", "application/json");
+        h.setRequestProperty("User-Agent", UA);
+        String text;
+        try {
+            h.getOutputStream().write(body.getBytes("UTF-8"));
+            text = Tmdb.readAll(h.getInputStream());
+        } finally {
+            h.disconnect();
+        }
+        JSONArray edges = new JSONObject(text).getJSONObject("data").getJSONObject("popularTitles").getJSONArray("edges");
+        String type = kind.equals("movie") ? "MOVIE" : "SHOW";
+        for (int i = 0; i < edges.length(); i++) {
+            JSONObject node = edges.getJSONObject(i).getJSONObject("node");
+            JSONObject ids = node.optJSONObject("content") == null ? null : node.getJSONObject("content").optJSONObject("externalIds");
+            if (ids == null || !String.valueOf(id).equals(ids.optString("tmdbId")) || !type.equals(node.optString("objectType"))) continue;
+            JSONArray offers = node.optJSONArray("offers");
+            for (int j = 0; offers != null && j < offers.length(); j++) {
+                JSONObject o = offers.getJSONObject(j);
+                String url = o.optString("standardWebURL"), service = o.optJSONObject("package") == null ? "" : o.getJSONObject("package").optString("clearName");
+                String app = service.isEmpty() ? null : Providers.officialApp(c, service);
+                if (app != null && url.startsWith("https://") && !out.containsKey(app)) out.put(app, url);
+            }
+            return;
+        }
     }
 
     /** Opens the title in the app when there's a link it takes; otherwise false (the caller opens the app). */

@@ -155,6 +155,7 @@ final class HomeRows {
         if (!canRead(c)) return out;
         Set<String> apps = launchablePackages(c);
         PackageManager pm = c.getPackageManager();
+        org.json.JSONObject only = Prefs.appChannels();
         try (Cursor q = c.getContentResolver().query(TvContract.Channels.CONTENT_URI, null, null, null, null)) {
             while (q != null && q.moveToNext() && out.size() < 8) {
                 if (!TvContract.Channels.TYPE_PREVIEW.equals(str(q, "type"))) continue;
@@ -167,13 +168,20 @@ final class HomeRows {
                     continue;
                 }
                 String name = str(q, "display_name");
+                org.json.JSONArray keep = only.optJSONArray(pkg);
+                if (keep != null && !listed(keep, name)) continue;   // config.json "app_channels" keeps only these
                 String title = name.isEmpty() || name.equalsIgnoreCase(app) ? app : app + " · " + name;
-                out.add(new Object[] {title, num(q, "_id", -1)});
+                out.add(new Object[] {title, num(q, "_id", -1), pkg});
             }
         } catch (RuntimeException e) {
             AppLog.w("channels: " + e.getMessage());
         }
         return out;
+    }
+
+    private static boolean listed(org.json.JSONArray names, String name) {
+        for (int i = 0; i < names.length(); i++) if (names.optString(i).trim().equalsIgnoreCase(name.trim())) return true;
+        return false;
     }
 
     static List<Card> channelPrograms(Context c, long channel) {
@@ -332,6 +340,58 @@ final class HomeRows {
         lp.rightMargin = Math.round(TvUi.POSTER_GAP * k);
         cell.setLayoutParams(lp);
         return cell;
+    }
+
+    // MARK: - The language · genre bar
+
+    /** A line that, entered from above or below, lands on the word focused last (the dot at first). */
+    static final class FocusRow extends LinearLayout {
+        private View last;
+
+        FocusRow(Context c) {
+            super(c);
+            setOrientation(HORIZONTAL);
+        }
+
+        void remember(View v) {
+            last = v;
+        }
+
+        @Override public void requestChildFocus(View child, View focused) {
+            super.requestChildFocus(child, focused);
+            last = child;
+            if (getParent() instanceof CenterScroll) ((CenterScroll) getParent()).center(child, true);
+        }
+
+        @Override public void addFocusables(java.util.ArrayList<View> views, int direction, int mode) {
+            if (hasFocus() || last == null || last.getParent() != this || (direction != FOCUS_UP && direction != FOCUS_DOWN)) {
+                super.addFocusables(views, direction, mode);
+            } else {
+                last.addFocusables(views, direction, mode);
+            }
+        }
+    }
+
+    /** Keeps the focused word in the middle of the screen, as a dial would. */
+    static final class CenterScroll extends android.widget.HorizontalScrollView {
+        CenterScroll(Context c) {
+            super(c);
+            setFocusable(false);
+            setHorizontalScrollBarEnabled(false);
+            setClipChildren(false);
+            setClipToPadding(false);
+        }
+
+        void center(View child, boolean smooth) {
+            if (getWidth() == 0) return;
+            int x = child.getLeft() + child.getWidth() / 2 - getWidth() / 2;
+            if (smooth) smoothScrollTo(x, 0);
+            else scrollTo(x, 0);
+        }
+
+        @Override protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect r) {
+            return 0;   // center() does the scrolling
+        }
     }
 
     // MARK: - Pictures from other apps (content:// and android.resource://, not only the web)

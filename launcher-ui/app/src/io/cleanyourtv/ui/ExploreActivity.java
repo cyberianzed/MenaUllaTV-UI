@@ -136,6 +136,7 @@ public class ExploreActivity extends Activity {
         final String title;
         final Callable<List<Tmdb.Title>> load;
         Callable<List<HomeRows.Card>> cards;   // what another app shares (Continue Watching, a channel) instead of titles
+        ViewGroup box;   // a fixed place for the row (Continue watching, above the bar) instead of the list's order
         String morePath, moreKind;
         Runnable more;
         boolean personal, ranked;
@@ -438,6 +439,12 @@ public class ExploreActivity extends Activity {
     // MARK: - Menu
 
     /** Three short bars at the top left: the menu is there, to the left. */
+    private LinearLayout burger;
+
+    /**
+     * On the home screen it's a button: Up from the banner reaches it, OK opens the menu (Left no longer does). Same
+     * place and look; focused, it sits on a light pill with dark bars.
+     */
     private View burger() {
         LinearLayout b = new LinearLayout(this);
         b.setOrientation(LinearLayout.VERTICAL);
@@ -448,13 +455,29 @@ public class ExploreActivity extends Activity {
             lp.topMargin = i == 0 ? 0 : Math.round(7 * k);
             b.addView(bar, lp);
         }
+        burger = b;
+        if (isHome()) {
+            int pad = Math.round(16 * k);
+            b.setPadding(pad, pad, pad, pad);
+            b.setId(View.generateViewId());
+            b.setFocusable(true);
+            b.setFocusableInTouchMode(true);
+            b.setContentDescription(Ui.tr("Menu", "Menu"));
+            b.setOnClickListener(v -> openMenu());
+            b.setOnFocusChangeListener((v, has) -> {
+                b.setBackground(has ? TvUi.round(TvUi.INK, 30 * k) : null);
+                for (int i = 0; i < b.getChildCount(); i++) b.getChildAt(i).setBackground(TvUi.round(has ? 0xFF14161A : 0xB3FFFFFF, 2 * k));
+                v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f).setDuration(140).start();
+            });
+        }
         return b;
     }
 
     private FrameLayout.LayoutParams burgerParams() {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.leftMargin = Math.round(52 * k);
-        lp.topMargin = Math.round(66 * k);
+        int pad = isHome() ? Math.round(16 * k) : 0;   // the button's padding: the bars stay where they were
+        lp.leftMargin = Math.round(52 * k) - pad;
+        lp.topMargin = Math.round(66 * k) - pad;
         return lp;
     }
 
@@ -652,7 +675,21 @@ public class ExploreActivity extends Activity {
             }
             return super.dispatchKeyEvent(e);
         }
-        if (code == KeyEvent.KEYCODE_DPAD_LEFT && down && Tmdb.hasKey()) {
+        if (isHome() && down && burger != null) {
+            View f = getCurrentFocus();
+            boolean top = f != null && (f == hero || ((hero == null || heroList.isEmpty()) && appsLine != null && f.getParent() == appsLine));
+            if (code == KeyEvent.KEYCODE_DPAD_UP && top) {   // Up from the banner (or the shelf, with no banner): the menu button
+                burger.requestFocus();
+                return true;
+            }
+            if (f == burger && (code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                focusPage();
+                return true;
+            }
+            if (f == burger) return code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER && code != KeyEvent.KEYCODE_BACK
+                    ? true : super.dispatchKeyEvent(e);
+        }
+        if (code == KeyEvent.KEYCODE_DPAD_LEFT && down && Tmdb.hasKey() && !isHome()) {   // home: Left never opens the menu
             View f = getCurrentFocus();
             boolean heroBack = f != null && f == hero && heroAt > 0;   // the banner goes back first, then the menu
             if (!heroBack && (f == null || f.focusSearch(View.FOCUS_LEFT) == null)) {
@@ -816,6 +853,11 @@ public class ExploreActivity extends Activity {
         if (homeScreen) {
             rows.addView(appsRow());
             rows.addView(shortcutsRow());
+            cwBox = new LinearLayout(this);
+            cwBox.setOrientation(LinearLayout.VERTICAL);
+            cwBox.setClipChildren(false);
+            rows.addView(cwBox);
+            if (Tmdb.hasKey()) rows.addView(filterBar());
         }
         status = TvUi.text(this, k, 26, Ui.regular, TvUi.DIM);
         status.setPadding(0, Math.round(30 * k), 0, 0);
@@ -930,7 +972,7 @@ public class ExploreActivity extends Activity {
         placedKeys.put(slot, keys.toString());
         View old = placed.remove(slot);
         boolean hadFocus = old != null && old.hasFocus();
-        if (old != null) rows.removeView(old);
+        if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
         if (cards != null ? cards.isEmpty() : titles.isEmpty()) {
             if (hadFocus) focusPage();
             return;
@@ -938,6 +980,11 @@ public class ExploreActivity extends Activity {
         View view = cards != null ? HomeRows.cardsRow(this, k, s.title, cards, Math.round(INSET * k), c -> HomeRows.open(this, c))
                 : s.ranked ? ranked(s, titles) : TvUi.row(this, k, s.title, titles, this::open, moreOf(s), Math.round(INSET * k));
         placed.put(slot, view);
+        if (s.box != null) {
+            s.box.addView(view);
+            if (hadFocus) view.requestFocus();
+            return;
+        }
         int index = rows.indexOfChild(status) + 1;
         for (Map.Entry<Integer, View> e : placed.entrySet()) {
             if (e.getKey() < slot && e.getValue().getParent() == rows) index = Math.max(index, rows.indexOfChild(e.getValue()) + 1);
@@ -2002,29 +2049,8 @@ public class ExploreActivity extends Activity {
                 return out;
             case HOME: {
                 if (isHome()) {
-                    out.add(Section.cards(Ui.tr("Continuar assistindo", "Continue watching"), () -> HomeRows.watchNext(this)).personal());
-                    if (!Tmdb.hasKey()) {
-                        channels(out);
-                        return out;
-                    }
-                    out.add(new Section(Ui.tr("Em alta em malaiala", "Trending in Malayalam"), this::malayalam)
-                            .more(discoverPath("movie", malayalamParams()), "movie"));
-                }
-                out.add(new Section(Ui.tr("Minha lista", "My list"), () -> Tmdb.watchlist(this)).personal().more(() -> showPage(LIST)));
-                out.add(new Section(Ui.tr("Recomendado para você", "Recommended for you"), this::forYou).personal());
-                List<Tmdb.Title> seen = Tmdb.seen(this);
-                Tmdb.Title last = seen.isEmpty() ? null : seen.get(0);
-                if (last != null) {
-                    out.add(new Section(Ui.tr("Porque você viu ", "Because you watched ") + last.name,
-                            () -> fresh(Tmdb.titles(Tmdb.get("/" + last.kind + "/" + last.id + "/recommendations"), last.kind)))
-                            .personal().more("/" + last.kind + "/" + last.id + "/recommendations", last.kind));
-                }
-                if (isHome()) {
-                    if (HomeApps.launchIntent(getPackageManager(), MOVIESHELF) != null) {
-                        out.add(new Section(Ui.tr("Novos filmes em malaiala · MovieShelf", "New Malayalam films · MovieShelf"), this::movieShelf)
-                                .more(() -> launch(MOVIESHELF)));
-                    }
-                    channels(out);
+                    homeSections(out);
+                    return out;
                 }
                 out.add(new Section(Ui.tr("Em alta hoje", "Trending today"), () -> Tmdb.titles(Tmdb.get("/trending/all/day"), "movie"))
                         .more("/trending/all/day", "movie"));
@@ -2086,18 +2112,277 @@ public class ExploreActivity extends Activity {
         return discover("movie", malayalamParams());
     }
 
-    /** MovieShelf's own rules: Malayalam, out in the last two months, newest first, rated 5 or more by 3+ votes. */
-    private List<Tmdb.Title> movieShelf() throws Exception {
-        return discover("movie", "&with_original_language=ml&sort_by=primary_release_date.desc&primary_release_date.gte=" + day(62)
-                + "&primary_release_date.lte=" + day(0) + "&vote_average.gte=5&vote_count.gte=3");
-    }
-
-    /** One row per preview channel another app shares (YouTube's, when it has one). */
-    private void channels(List<Section> out) {
+    /** One row per preview channel another app shares (YouTube's, when it has one); the apps that shared one. */
+    private Set<String> channels(List<Section> out) {
+        Set<String> apps = new HashSet<>();
         for (Object[] ch : HomeRows.channels(this)) {
             long id = (Long) ch[1];
+            apps.add((String) ch[2]);
             out.add(Section.cards((String) ch[0], () -> HomeRows.channelPrograms(this, id)).personal());
         }
+        return apps;
+    }
+
+    // MARK: - The home screen's rows, and the language · genre bar that steers them
+
+    /** The bar's languages, nearest the dot first: {TMDB code, name}. */
+    private static final String[][] LANGS = {
+        {"ml", "Malayalam"}, {"en", "English"}, {"ta", "Tamil"}, {"hi", "Hindi"}, {"te", "Telugu"}, {"kn", "Kannada"},
+        {"ko", "Korean"}, {"ja", "Japanese"},
+    };
+    /** The bar's genres, nearest the dot first (keys of GENRES). */
+    private static final String[] BAR_GENRES = {"acao", "comedia", "suspense", "drama", "romance", "terror", "familia", "crime",
+            "ficcao", "fantasia", "misterio", "aventura", "animacao", "documentarios"};
+    private String[] pickedLang;    // {code, name}; null: the dot (Malayalam rows, everything else as it comes)
+    private String[] pickedGenre;   // a GENRES row; null: every genre
+    private LinearLayout cwBox;     // Continue watching sits here, above the bar
+
+    private String lang() {
+        return pickedLang != null ? pickedLang[0] : "ml";
+    }
+
+    private String langName() {
+        return pickedLang != null ? pickedLang[1] : "Malayalam";
+    }
+
+    private String genreParam(String kind) {
+        if (pickedGenre == null) return "";
+        String id = kind.equals("tv") ? pickedGenre[4] : pickedGenre[3];
+        return id == null ? "" : "&with_genres=" + id;
+    }
+
+    private String picked() {
+        return pickedGenre == null ? "" : " · " + pickedGenre[2];
+    }
+
+    /** What the bar picked comes first; the rest keeps its order (a row never empties). */
+    private List<Tmdb.Title> prefer(List<Tmdb.Title> list) {
+        if (pickedLang == null && pickedGenre == null) return list;
+        List<Tmdb.Title> yes = new ArrayList<>(), no = new ArrayList<>();
+        for (Tmdb.Title t : list) (matches(t) ? yes : no).add(t);
+        yes.addAll(no);
+        return yes;
+    }
+
+    private boolean matches(Tmdb.Title t) {
+        if (pickedLang != null && !pickedLang[0].equals(t.lang)) return false;
+        if (pickedGenre == null) return true;
+        for (int g : t.genres) {
+            if (String.valueOf(g).equals(pickedGenre[3]) || String.valueOf(g).equals(pickedGenre[4])) return true;
+        }
+        return false;
+    }
+
+    private void homeSections(List<Section> out) {
+        Section cw = Section.cards(Ui.tr("Continuar assistindo", "Continue watching"), () -> HomeRows.watchNext(this)).personal();
+        cw.box = cwBox;
+        out.add(cw);
+        if (!Tmdb.hasKey()) {
+            channels(out);
+            return;
+        }
+        if (pickedLang != null || pickedGenre != null) {
+            pickedSections(out);
+            return;
+        }
+        String trending = "&with_original_language=" + lang() + "&sort_by=popularity.desc&primary_release_date.gte=" + day(120)
+                + "&primary_release_date.lte=" + day(0) + genreParam("movie");
+        out.add(new Section(Ui.tr("Em alta em ", "Trending in ") + langName() + picked(), () -> discover("movie", trending))
+                .more(discoverPath("movie", trending), "movie"));
+        out.add(new Section(Ui.tr("Minha lista", "My list"), () -> Tmdb.watchlist(this)).personal().more(() -> showPage(LIST)));
+        out.add(new Section(Ui.tr("Recomendado para você", "Recommended for you"), () -> prefer(forYou())).personal());
+        List<Tmdb.Title> seen = Tmdb.seen(this);
+        Tmdb.Title last = seen.isEmpty() ? null : seen.get(0);
+        if (last != null) {
+            out.add(new Section(Ui.tr("Porque você viu ", "Because you watched ") + last.name,
+                    () -> prefer(fresh(Tmdb.titles(Tmdb.get("/" + last.kind + "/" + last.id + "/recommendations"), last.kind))))
+                    .personal().more("/" + last.kind + "/" + last.id + "/recommendations", last.kind));
+        }
+        Set<String> shared = channels(out);   // Netflix, Prime Video… as their apps share them
+        int m = 0;
+        for (Service s : services()) {   // right after them, an app with no channel of its own (Sony Liv): its trending row
+            if (m++ >= 6) break;
+            if (shared.contains(s.key)) continue;
+            out.add(new Section(s.name, () -> mix(
+                    discover("tv", "&with_watch_providers=" + s.ids + "&sort_by=popularity.desc"),
+                    discover("movie", "&with_watch_providers=" + s.ids + "&sort_by=popularity.desc")))
+                    .more(() -> showPage(SERVICE + s.key)));
+        }
+        boolean anime = false;
+        int n = 0;
+        for (Service s : services()) {
+            if (n++ >= 6) break;
+            String p = "&with_watch_providers=" + s.ids + "&with_original_language=" + lang() + "&sort_by=primary_release_date.desc"
+                    + "&primary_release_date.lte=" + day(0) + "&vote_count.gte=3" + genreParam("movie");
+            out.add(new Section(langName() + Ui.tr(" na ", " on ") + s.name + picked(), () -> discover("movie", p))
+                    .more(discoverPath("movie", p), "movie"));
+            if (!anime && s.name.toLowerCase(Locale.ROOT).contains("prime")) {
+                anime = true;
+                out.add(animeSection());
+            }
+        }
+        if (!anime) out.add(animeSection());
+        // Explore's general rows (trending today, this week, kids, people...) stay in Explore: the bar steers the home screen.
+    }
+
+    /**
+     * Something is picked on the bar: every row under it is that language and/or genre. Rows TMDB can't sort that
+     * way (the apps' own channels, anime) step aside until the dot is picked again.
+     */
+    private void pickedSections(List<Section> out) {
+        String name = ((pickedLang != null ? pickedLang[1] : "") + (pickedGenre != null ? " " + pickedGenre[2] : "")).trim();
+        String langP = pickedLang == null ? "" : "&with_original_language=" + pickedLang[0];
+        String films = langP + genreParam("movie"), shows = langP + genreParam("tv");
+        String trending = films + "&sort_by=popularity.desc&primary_release_date.gte=" + day(120) + "&primary_release_date.lte=" + day(0);
+        out.add(new Section(Ui.tr("Em alta · ", "Trending · ") + name, () -> discover("movie", trending)).more(discoverPath("movie", trending), "movie"));
+        out.add(new Section(Ui.tr("Minha lista · ", "My list · ") + name, () -> only(Tmdb.watchlist(this))).personal().more(() -> showPage(LIST)));
+        out.add(new Section(Ui.tr("Para você · ", "For you · ") + name, () -> only(forYou())).personal());
+        String fresh = films + "&sort_by=primary_release_date.desc&primary_release_date.lte=" + day(0) + "&vote_count.gte=3";
+        out.add(new Section(Ui.tr("Filmes novos · ", "New films · ") + name, () -> discover("movie", fresh)).more(discoverPath("movie", fresh), "movie"));
+        String popularShows = shows + "&sort_by=popularity.desc&vote_count.gte=10";
+        out.add(new Section(Ui.tr("Séries · ", "Shows · ") + name, () -> discover("tv", popularShows)).more(discoverPath("tv", popularShows), "tv"));
+        int n = 0;
+        for (Service s : services()) {
+            if (n++ >= 6) break;
+            String p = films + "&with_watch_providers=" + s.ids + "&sort_by=popularity.desc";
+            String q = shows + "&with_watch_providers=" + s.ids + "&sort_by=popularity.desc";
+            out.add(new Section(name + Ui.tr(" na ", " on ") + s.name, () -> mix(discover("movie", p), discover("tv", q)))
+                    .more(discoverPath("movie", p), "movie"));
+        }
+        String best = films + "&sort_by=vote_average.desc&vote_count.gte=" + (pickedLang != null && !pickedLang[0].equals("en") ? 40 : 400);
+        out.add(new Section(Ui.tr("Mais bem avaliados · ", "Top rated · ") + name, () -> discover("movie", best)).more(discoverPath("movie", best), "movie"));
+        String most = films + "&sort_by=vote_count.desc";
+        out.add(new Section(Ui.tr("Os mais vistos · ", "Most watched · ") + name, () -> discover("movie", most)).more(discoverPath("movie", most), "movie"));
+    }
+
+    /** Only what the bar picked (personal rows, which TMDB can't filter for us). */
+    private List<Tmdb.Title> only(List<Tmdb.Title> list) {
+        List<Tmdb.Title> out = new ArrayList<>();
+        for (Tmdb.Title t : list) if (matches(t)) out.add(t);
+        return out;
+    }
+
+    private Section animeSection() {
+        return new Section(Ui.tr("Animes em alta", "Trending anime"), () -> fetch(Filter.of("all", "anime"), 1)).more(() -> showPage(ANIME));
+    }
+
+    /**
+     * Languages to the left of a dot, genres to its right, as plain one-colour words (like the services' wordmarks on
+     * a streaming app): the dot is where the focus lands, Left walks the languages, Right the genres, OK picks one and
+     * the rows under it lean that way. The dot puts everything back.
+     */
+    private View filterBar() {
+        List<TextView> langViews = new ArrayList<>(), genreViews = new ArrayList<>();
+        List<String[]> genreRows = new ArrayList<>();
+        TextView[] dotRef = new TextView[1];
+        HomeRows.FocusRow line = new HomeRows.FocusRow(this);
+        line.setGravity(Gravity.CENTER_VERTICAL);
+        line.setClipChildren(false);
+        line.setClipToPadding(false);
+        Runnable restyle = () -> {
+            for (int i = 0; i < langViews.size(); i++) chosen(langViews.get(i), pickedLang == LANGS[i]);
+            for (int i = 0; i < genreViews.size(); i++) chosen(genreViews.get(i), pickedGenre == genreRows.get(i));
+            chosen(dotRef[0], pickedLang == null && pickedGenre == null);
+        };
+        for (int i = LANGS.length - 1; i >= 0; i--) {   // the farthest language first: Malayalam ends up next to the dot
+            String[] l = LANGS[i];
+            TextView t = word(l[1].toUpperCase(Locale.ROOT), true);
+            t.setOnClickListener(v -> {
+                pickedLang = pickedLang == l ? null : l;
+                restyle.run();
+                reloadRows();
+            });
+            langViews.add(0, t);
+            line.addView(t);
+        }
+        TextView dot = word("•", false);
+        dot.setTextSize(TypedValue.COMPLEX_UNIT_PX, 44 * k);
+        dot.setOnClickListener(v -> {
+            pickedLang = null;
+            pickedGenre = null;
+            restyle.run();
+            reloadRows();
+        });
+        dotRef[0] = dot;
+        line.addView(dot);
+        for (String key : BAR_GENRES) {
+            String[] g = genre(key);
+            if (g == null) continue;
+            TextView t = word(g[2].toUpperCase(Locale.ROOT), false);
+            t.setOnClickListener(v -> {
+                pickedGenre = pickedGenre == g ? null : g;
+                restyle.run();
+                reloadRows();
+            });
+            genreViews.add(t);
+            genreRows.add(g);
+            line.addView(t);
+        }
+        line.remember(dot);
+        restyle.run();
+        HomeRows.CenterScroll hs = new HomeRows.CenterScroll(this);
+        int half = getResources().getDisplayMetrics().widthPixels / 2;
+        line.setPadding(half, Math.round(18 * k), half, Math.round(18 * k));
+        hs.addView(line);
+        hs.post(() -> hs.center(dot, false));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = -Math.round(INSET * k);   // centred on the screen, not on the rows' margin
+        lp.topMargin = Math.round(14 * k);
+        hs.setLayoutParams(lp);
+        return hs;
+    }
+
+    private static final android.graphics.Typeface CONDENSED =
+            android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD);
+
+    /**
+     * A wordmark in Netflix's category style: bold condensed capitals, tall and squared off, one colour, no box.
+     * Languages a size up from the genres.
+     */
+    private TextView word(String text, boolean heavy) {
+        TextView t = TvUi.text(this, k, heavy ? 40 : 36, CONDENSED, TvUi.FAINT);
+        t.setText(text);
+        t.setLetterSpacing(heavy ? 0.04f : 0.02f);
+        t.setPadding(Math.round(30 * k), Math.round(14 * k), Math.round(30 * k), Math.round(14 * k));
+        t.setFocusable(true);
+        t.setFocusableInTouchMode(true);
+        t.setOnFocusChangeListener((v, has) -> {
+            v.animate().scaleX(has ? 1.18f : 1f).scaleY(has ? 1.18f : 1f).setDuration(140).start();
+            restyleWord((TextView) v);
+        });
+        return t;
+    }
+
+    private void chosen(TextView t, boolean on) {
+        t.setTag(on ? "chosen" : null);
+        restyleWord(t);
+    }
+
+    /** Focused: bright white; picked: white and underlined; the rest: a soft grey. */
+    private void restyleWord(TextView t) {
+        boolean on = "chosen".equals(t.getTag());
+        t.setTextColor(t.hasFocus() ? TvUi.INK : on ? 0xE6F5F6F8 : 0x73F5F6F8);
+        boolean line = on && !"•".contentEquals(t.getText());
+        t.setPaintFlags(line ? t.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                : t.getPaintFlags() & ~android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+    }
+
+    /** The bar picked something: the rows under it are asked again; the banner, shelf and bar stay. */
+    private void reloadRows() {
+        int gen = ++generation;
+        for (View v : placed.values()) if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
+        placed.clear();
+        placedKeys.clear();
+        status.setText(Ui.tr("Carregando…", "Loading…"));
+        status.setVisibility(View.VISIBLE);
+        io.execute(() -> {
+            List<Section> list = sections(HOME);
+            main.post(() -> {
+                if (gen != generation || isFinishing()) return;
+                sections = list;
+                load(gen, list, false);
+            });
+        });
     }
 
     private void launch(String pkg) {
