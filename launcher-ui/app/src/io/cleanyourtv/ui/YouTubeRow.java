@@ -18,6 +18,9 @@ import java.util.regex.Pattern;
  * A row of YouTube videos worth watching: the latest uploads of hand-picked channels (no Shorts), read from YouTube's
  * public per-channel feeds (no key), shuffled. About a fifth Malayalam; the rest new songs, tech, trailers and podcasts.
  * Each opens in TizenTube when it's on the TV, else in whatever plays youtube.com links.
+ *
+ * config.json "youtube_channels" replaces the picks with your own: channel ids ("UC…"), or {"id": "UC…", "ml": true}
+ * for the Malayalam fifth (a Google Takeout export of your subscriptions has the ids).
  */
 final class YouTubeRow {
     private YouTubeRow() {}
@@ -46,20 +49,41 @@ final class YouTubeRow {
         {"UCzwCEE_PchiBULMnAJqhGVg", "podcasts"},  // Raj Shamani
     };
     private static final int SIZE = 20, MALAYALAM = 4;
-    private static final long MAX_AGE = 45L * 24 * 3600 * 1000, KEEP = 3600L * 1000;
+    private static final long MAX_AGE = 45L * 24 * 3600 * 1000, KEEP = 30L * 60 * 1000;
 
     private static List<HomeRows.Card> cached;
     private static long cachedAt;
+
+    /** Next time, fresh videos (the TV was turned back on). */
+    static synchronized void forget() {
+        cached = null;
+    }
+
+    /** config.json's channels when it has some, else the picks above. */
+    private static String[][] channels() {
+        org.json.JSONArray own = Prefs.youtubeChannels();
+        List<String[]> out = new ArrayList<>();
+        for (int i = 0; i < own.length(); i++) {
+            Object o = own.opt(i);
+            if (o instanceof String && ((String) o).startsWith("UC")) out.add(new String[] {(String) o, "own"});
+            else if (o instanceof org.json.JSONObject && ((org.json.JSONObject) o).optString("id").startsWith("UC")) {
+                org.json.JSONObject j = (org.json.JSONObject) o;
+                out.add(new String[] {j.optString("id"), j.optBoolean("ml") ? "ml" : "own"});
+            }
+        }
+        return out.isEmpty() ? CHANNELS : out.toArray(new String[0][]);
+    }
 
     static synchronized List<HomeRows.Card> videos(Context c) {
         long now = System.currentTimeMillis();
         if (cached != null && now - cachedAt < KEEP) return cached;
         boolean tizen = installed(c, TIZENTUBE);
+        String[][] channels = channels();
         List<List<HomeRows.Card>> feeds = new ArrayList<>();
         ExecutorService pool = Executors.newFixedThreadPool(6);
         try {
             List<Future<List<HomeRows.Card>>> jobs = new ArrayList<>();
-            for (String[] ch : CHANNELS) jobs.add(pool.submit(() -> feed(ch[0], tizen, now)));
+            for (String[] ch : channels) jobs.add(pool.submit(() -> feed(ch[0], tizen, now)));
             for (Future<List<HomeRows.Card>> f : jobs) {
                 try {
                     feeds.add(f.get());
@@ -72,11 +96,11 @@ final class YouTubeRow {
         }
         // A fifth Malayalam; the rest taken a channel at a time, so no one channel fills the row.
         List<List<HomeRows.Card>> ml = new ArrayList<>(), other = new ArrayList<>();
-        for (int i = 0; i < CHANNELS.length; i++) {
+        for (int i = 0; i < channels.length; i++) {
             Collections.shuffle(feeds.get(i));
-            ("ml".equals(CHANNELS[i][1]) ? ml : other).add(feeds.get(i));
+            ("ml".equals(channels[i][1]) ? ml : other).add(feeds.get(i));
         }
-        List<HomeRows.Card> out = take(ml, MALAYALAM);
+        List<HomeRows.Card> out = take(ml, ml.isEmpty() ? 0 : MALAYALAM);
         out.addAll(take(other, SIZE - out.size()));
         Collections.shuffle(out);
         if (!out.isEmpty()) {
@@ -125,7 +149,9 @@ final class YouTubeRow {
             card.key = "yt:" + id;
             card.title = unescape(tag(e, "title"));
             card.sub = unescape(author);
-            card.image = "https://i.ytimg.com/vi/" + id + "/hq720.jpg";
+            // 480x360 with the 16:9 picture between bars the card's crop cuts off: a fifth of hq720's memory, so a fast
+            // scroll doesn't decode and upload big pictures over and over.
+            card.image = "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg";
             card.pkg = TIZENTUBE;
             card.when = when;
             String url = "https://www.youtube.com/watch?v=" + id;

@@ -245,7 +245,10 @@ public class ExploreActivity extends Activity {
         getWindow().setBackgroundDrawable(null);   // the root paints the whole screen: no second full-screen fill under it
         root.addView(backdrops(), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         scroll = new TvUi.Scroll(this);
-        if (isHome()) scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> corners(y < 40 * k));
+        if (isHome()) {
+            scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> corners(y < 40 * k));
+            registerReceiver(screenOn, new android.content.IntentFilter(Intent.ACTION_SCREEN_ON));
+        }
         page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setClipChildren(false);
@@ -360,7 +363,21 @@ public class ExploreActivity extends Activity {
         super.onPause();
     }
 
+    /** The TV turned back on: the YouTube row fetches fresh videos. */
+    private final android.content.BroadcastReceiver screenOn = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            YouTubeRow.forget();
+            if (HOME.equals(current) && sections != null && !io.isShutdown()) load(generation, sections, true);
+        }
+    };
+
     @Override protected void onDestroy() {
+        if (isHome()) {
+            try {
+                unregisterReceiver(screenOn);
+            } catch (RuntimeException ignored) {
+            }
+        }
         io.shutdownNow();
         super.onDestroy();
     }
@@ -1093,10 +1110,6 @@ public class ExploreActivity extends Activity {
                     place(slot, s, got, gotCards);
                     if (personalOnly) return;
                     left[0]--;
-                    if (focusBelowBar == gen && (slot == firstRowSlot(list) && placed.containsKey(slot) || left[0] == 0)) {
-                        focusBelowBar = -1;
-                        focusUnderBar();
-                    }
                     if (left[0] == 0) {
                         dropSlotsFrom(list.size());   // a pick with fewer rows than before: the old extra ones go
                         rows.setMinimumHeight(0);
@@ -1107,25 +1120,6 @@ public class ExploreActivity extends Activity {
                     }
                 });
             });
-        }
-    }
-
-    /** The first section that goes under the bar (Continue watching sits above it). */
-    private static int firstRowSlot(List<Section> list) {
-        for (int i = 0; i < list.size(); i++) if (list.get(i).box == null) return i;
-        return -1;
-    }
-
-    /** After a pick on the bar: the first poster of the first row under it, with the bar settled near the top. */
-    private void focusUnderBar() {
-        if (bar == null || bar.getParent() != rows || menuOpen || overlay != null) return;
-        for (int i = rows.indexOfChild(bar) + 1; i < rows.getChildCount(); i++) {
-            View v = rows.getChildAt(i);
-            if (v != status && v.getVisibility() == View.VISIBLE && v.requestFocus()) {
-                // Always the same place, whatever the scroll was: the bar a little under the top, the row right below it.
-                scroll.post(() -> scroll.aimAt(Math.max(0, rows.getTop() + bar.getTop() - Math.round(40 * k))));
-                return;
-            }
         }
     }
 
@@ -1158,26 +1152,39 @@ public class ExploreActivity extends Activity {
         placedKeys.put(slot, keys.toString());
         View old = placed.remove(slot);
         boolean hadFocus = old != null && old.hasFocus();
-        if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
         if (cards != null ? cards.isEmpty() : titles.isEmpty()) {
-            if (hadFocus) focusPage();
+            if (hadFocus) {   // its row is gone: the next one down takes the focus, the page stays
+                scroll.hold(400);
+                View next = old.focusSearch(View.FOCUS_DOWN);
+                if (next == null || !inside(next, rows) || !next.requestFocus()) focusPage();
+            }
+            if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
             return;
         }
         View view = cards != null ? HomeRows.cardsRow(this, k, s.title, cards, Math.round(INSET * k), c -> HomeRows.open(this, c))
                 : s.ranked ? ranked(s, titles) : TvUi.row(this, k, s.title, titles, this::open, moreOf(s), Math.round(INSET * k));
         placed.put(slot, view);
-        if (s.box != null) {
-            s.box.addView(view);
-            if (hadFocus) view.requestFocus();
-            return;
+        // The new row goes in first and takes the focus, then the old one leaves: removing a focused view first lets the
+        // system hand the focus to whatever it finds (the banner, at the top of the page).
+        ViewGroup parent = s.box != null ? s.box : rows;
+        int index;
+        if (old != null && old.getParent() == parent) index = parent.indexOfChild(old);
+        else if (s.box != null) index = s.box.getChildCount();
+        else {
+            index = rows.indexOfChild(status) + 1;
+            for (Map.Entry<Integer, View> e : placed.entrySet()) {
+                if (e.getKey() < slot && e.getValue().getParent() == rows) index = Math.max(index, rows.indexOfChild(e.getValue()) + 1);
+            }
         }
-        int index = rows.indexOfChild(status) + 1;
-        for (Map.Entry<Integer, View> e : placed.entrySet()) {
-            if (e.getKey() < slot && e.getValue().getParent() == rows) index = Math.max(index, rows.indexOfChild(e.getValue()) + 1);
+        parent.addView(view, Math.min(index, parent.getChildCount()));
+        if (hadFocus) {
+            scroll.hold(400);
+            view.requestFocus();
         }
-        rows.addView(view, Math.min(index, rows.getChildCount()));
+        if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+        if (s.box != null) return;
         View focus = getCurrentFocus();
-        if (hadFocus || (!menuOpen && overlay == null && (focus == null || !inside(focus, page)))) focusPage();
+        if (!hadFocus && !menuOpen && overlay == null && (focus == null || !inside(focus, page))) focusPage();
     }
 
     private Runnable moreOf(Section s) {
@@ -2332,7 +2339,6 @@ public class ExploreActivity extends Activity {
     private String[] pickedGenre;   // a GENRES row; null: every genre
     private LinearLayout cwBox;     // Continue watching sits here, above the bar
     private View bar;
-    private int focusBelowBar = -1;  // the generation whose first row under the bar takes the focus (a pick on the bar)
 
     private String lang() {
         return pickedLang != null ? pickedLang[0] : "ml";
@@ -2582,7 +2588,8 @@ public class ExploreActivity extends Activity {
     /** The bar picked something: the rows under it are asked again; the banner, shelf and bar stay. */
     private void reloadRows() {
         int gen = ++generation;
-        focusBelowBar = gen;
+        // The focus stays on the word just picked (Left/Right try the next one) and the page stays still while the
+        // rows under it change.
         rows.setMinimumHeight(rows.getHeight());   // the page keeps its length while the rows swap: no jump to the top
         // The old rows stay until each slot's new row replaces it (or the load ends without one): the page never empties
         // and reshuffles under the focus.

@@ -231,6 +231,17 @@ final class Prefs {
 
     static void setAppChannels(org.json.JSONObject v) { put("app_channels", v.toString()); }
 
+    /** config.json "youtube_channels": the YouTube row's channels instead of the built-in picks (see YouTubeRow). */
+    static org.json.JSONArray youtubeChannels() {
+        try {
+            return new org.json.JSONArray(sp().getString("youtube_channels", "[]"));
+        } catch (org.json.JSONException e) {
+            return new org.json.JSONArray();
+        }
+    }
+
+    static void setYoutubeChannels(org.json.JSONArray v) { put("youtube_channels", v.toString()); }
+
     /** config.json "hidden_channels": preview channels never shown, by name or row title (["Stream your library movies"]). */
     static org.json.JSONArray hiddenChannels() {
         try {

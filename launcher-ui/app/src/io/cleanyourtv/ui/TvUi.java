@@ -584,7 +584,15 @@ final class TvUi {
             }
         }
 
+        private long holdUntil;
+
+        /** For a moment, a focus change doesn't scroll the page (the caller places it itself). */
+        void hold(long ms) {
+            holdUntil = android.os.SystemClock.uptimeMillis() + ms;
+        }
+
         @Override protected int computeScrollDeltaToGetChildRectOnScreen(Rect r) {
+            if (android.os.SystemClock.uptimeMillis() < holdUntil) return 0;
             int h = getHeight();
             if (h == 0 || getChildCount() == 0) return 0;
             int y = aim >= 0 ? aim : getScrollY();
@@ -603,14 +611,6 @@ final class TvUi {
         @Override protected void onScrollChanged(int l, int t, int oldl, int oldt) {
             super.onScrollChanged(l, t, oldl, oldt);
             if (t == aim) aim = -1;
-        }
-
-        /** Glides to y, and focus moves made on the way count from there (not from wherever the glide is). */
-        void aimAt(int y) {
-            int max = getChildCount() == 0 ? 0 : Math.max(0, getChildAt(0).getHeight() - getHeight());
-            aim = Math.max(0, Math.min(max, y));
-            if (aim == getScrollY()) aim = -1;
-            else smoothScrollTo(0, aim);
         }
 
         void top() {

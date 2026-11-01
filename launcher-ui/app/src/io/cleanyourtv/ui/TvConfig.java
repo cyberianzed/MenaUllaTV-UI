@@ -78,6 +78,8 @@ final class TvConfig {
             if (channels != null) Prefs.setAppChannels(channels);
             JSONArray dropped = o.optJSONArray("hidden_channels");
             if (dropped != null) Prefs.setHiddenChannels(dropped);
+            JSONArray youtube = o.optJSONArray("youtube_channels");
+            if (youtube != null) Prefs.setYoutubeChannels(youtube);
             JSONObject city = o.optJSONObject("city");
             if (city != null && city.has("latitude") && city.has("longitude")) {
                 Prefs.setCity(city.optString("name"), String.valueOf(city.getDouble("latitude")),
