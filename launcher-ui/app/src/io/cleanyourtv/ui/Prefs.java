@@ -125,10 +125,10 @@ final class Prefs {
         }
     }
 
-    /** "auto" (12-hour in English, 24-hour otherwise, as before), "24h" or "12h". */
+    /** "12h" (the default), "24h" or "auto" (12-hour in English, 24-hour otherwise). */
     static String clockFormat() {
-        String v = sp().getString("clock", "auto");
-        return v.equals("24h") || v.equals("12h") ? v : "auto";
+        String v = sp().getString("clock", "12h");
+        return v.equals("24h") || v.equals("auto") ? v : "12h";
     }
 
     static void setClockFormat(String v) { put("clock", v); }

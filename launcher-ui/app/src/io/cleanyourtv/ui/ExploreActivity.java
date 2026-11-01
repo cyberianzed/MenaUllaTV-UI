@@ -251,7 +251,10 @@ public class ExploreActivity extends Activity {
         scroll.addView(page);
         root.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(burger(), burgerParams());
-        if (isHome()) root.addView(homeSettings(), homeSettingsParams());
+        if (isHome()) {
+            root.addView(homeSettings(), homeSettingsParams());
+            root.addView(clock(), clockParams());
+        }
         shade = new View(this);
         shade.setBackgroundColor(0xB3000000);
         shade.setAlpha(0);
@@ -340,6 +343,8 @@ public class ExploreActivity extends Activity {
             }
         }
         if (hero != null && !menuOpen) restartHero();
+        main.removeCallbacks(clockTick);
+        clockTick.run();
         if (resumedOnce && Tmdb.hasKey()) {   // back from a title page: the list, the picks and what was seen may have changed
             refreshPersonal();
             TvUi.refreshSeen(page);
@@ -349,6 +354,7 @@ public class ExploreActivity extends Activity {
 
     @Override protected void onPause() {
         main.removeCallbacks(heroTick);
+        main.removeCallbacks(clockTick);
         super.onPause();
     }
 
@@ -514,6 +520,44 @@ public class ExploreActivity extends Activity {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size, Gravity.TOP | Gravity.END);
         lp.rightMargin = Math.round(52 * k);
         lp.topMargin = Math.round(66 * k) + Math.round(11 * k) - size / 2;   // centred on the bars
+        return lp;
+    }
+
+    /** The time, large, with the day under it: top right, beside Home Settings. */
+    private TextView clockTime, clockDay;
+    private final Runnable clockTick = new Runnable() {
+        @Override public void run() {
+            if (clockTime == null) return;
+            long now = System.currentTimeMillis();
+            String time = Ui.clock(now);
+            if (Ui.twelveHour()) time += new SimpleDateFormat(" a", Locale.ENGLISH).format(new Date(now)).toLowerCase(Locale.ROOT);
+            clockTime.setText(time);
+            clockDay.setText(new SimpleDateFormat("EEE, d MMM", Locale.ENGLISH).format(new Date(now)));
+            main.postDelayed(this, 60_000 - now % 60_000 + 50);   // just after the minute turns
+        }
+    };
+
+    private View clock() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.END);
+        clockTime = TvUi.text(this, k, 46, Ui.displaySemibold, TvUi.INK);
+        clockDay = TvUi.text(this, k, 22, Ui.regular, 0xCCFFFFFF);
+        for (TextView t : new TextView[] {clockTime, clockDay}) {
+            t.setShadowLayer(12 * k, 0, 2 * k, 0x99000000);   // readable over a bright banner
+            t.setIncludeFontPadding(false);
+            box.addView(t);
+        }
+        clockDay.setPadding(0, Math.round(6 * k), Math.round(2 * k), 0);
+        clockTick.run();
+        return box;
+    }
+
+    private FrameLayout.LayoutParams clockParams() {
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.END);
+        lp.rightMargin = Math.round((52 + 68 + 28) * k);   // left of the Home Settings button
+        lp.topMargin = Math.round(46 * k);
         return lp;
     }
 

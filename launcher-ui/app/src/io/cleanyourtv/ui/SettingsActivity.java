@@ -329,6 +329,8 @@ public class SettingsActivity extends Activity {
             c.drawText("Muriyo thodakkunnilla, TV engilum mena aayitt irikkatte.", cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
             c.drawText("Jose K James · github.com/cyberianzed/cleanyourtv-ui/tree/explore-home", cx, 742 * k, version);
+            c.drawText(Ui.tr("Baseado no CleanYourTV UI de Matheus Caldeira · github.com/matheus-caldeira/cleanyourtv-ui",
+                    "Based on CleanYourTV UI by Matheus Caldeira · github.com/matheus-caldeira/cleanyourtv-ui"), cx, 780 * k, version);
 
             if (screen == MAIN) drawMain(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);
         }
