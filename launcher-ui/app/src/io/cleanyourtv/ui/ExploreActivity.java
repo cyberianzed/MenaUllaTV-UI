@@ -242,8 +242,10 @@ public class ExploreActivity extends Activity {
         fromBookmark = "watchlist".equals(getIntent().getStringExtra(EXTRA_SECTION));
         root = new FrameLayout(this);
         root.setBackgroundColor(TvUi.BG);
+        getWindow().setBackgroundDrawable(null);   // the root paints the whole screen: no second full-screen fill under it
         root.addView(backdrops(), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         scroll = new TvUi.Scroll(this);
+        if (isHome()) scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> corners(y < 40 * k));
         page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setClipChildren(false);
@@ -379,9 +381,6 @@ public class ExploreActivity extends Activity {
             v.setAlpha(0f);
             box.addView(v, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
-        View dim = new View(this);
-        dim.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {0xE60B0D12, 0xC70B0D12, 0xA30B0D12}));
-        box.addView(dim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         return box;
     }
 
@@ -402,16 +401,30 @@ public class ExploreActivity extends Activity {
         io.execute(() -> {
             Bitmap b = Images.fetch(url);
             if (b == null) return;
-            Bitmap soft = blur(Bitmap.createScaledBitmap(b, 160, Math.max(1, Math.round(160f * b.getHeight() / b.getWidth())), true), 3);
+            Bitmap soft = dimmed(blur(Bitmap.createScaledBitmap(b, 160, Math.max(1, Math.round(160f * b.getHeight() / b.getWidth())), true), 3));
             main.post(() -> {
                 if (!url.equals(backUrl) || isFinishing()) return;
                 ImageView in = backFront ? backA : backB, out = backFront ? backB : backA;
                 backFront = !backFront;
                 in.setImageBitmap(soft);
+                in.setVisibility(View.VISIBLE);
+                in.animate().cancel();
+                out.animate().cancel();
                 in.animate().alpha(1).setDuration(600).start();
-                out.animate().alpha(0).setDuration(600).start();
+                out.animate().alpha(0).setDuration(600).withEndAction(() -> out.setVisibility(View.INVISIBLE)).start();
             });
         });
+    }
+
+    /** The page's dark wash (darker on the left, under the text), painted into the small picture instead of over the screen. */
+    private static Bitmap dimmed(Bitmap soft) {
+        Bitmap out = soft.isMutable() ? soft : soft.copy(Bitmap.Config.ARGB_8888, true);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        android.graphics.Paint p = new android.graphics.Paint();
+        p.setShader(new android.graphics.LinearGradient(0, 0, out.getWidth(), 0, new int[] {0xE60B0D12, 0xC70B0D12, 0xA30B0D12}, null,
+                android.graphics.Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, out.getWidth(), out.getHeight(), p);
+        return out;
     }
 
     /** Three box blurs on a small copy: close to a Gaussian, smooth when stretched over the screen. */
@@ -474,7 +487,7 @@ public class ExploreActivity extends Activity {
             b.setOnFocusChangeListener((v, has) -> {
                 b.setBackground(has ? TvUi.round(TvUi.INK, 30 * k) : null);
                 for (int i = 0; i < b.getChildCount(); i++) b.getChildAt(i).setBackground(TvUi.round(has ? 0xFF14161A : 0xB3FFFFFF, 2 * k));
-                v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f).setDuration(140).start();
+                TvUi.lift(v, has, 1.1f, 0, 0);
             });
         }
         return b;
@@ -508,7 +521,7 @@ public class ExploreActivity extends Activity {
         b.setOnFocusChangeListener((v, has) -> {
             b.setBackground(TvUi.round(has ? TvUi.INK : 0x33FFFFFF, 34 * k));
             icon.color(has ? 0xFF14161A : 0xD9FFFFFF);
-            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f).setDuration(140).start();
+            TvUi.lift(v, has, 1.1f, 0, 0);
         });
         settingsButton = b;
         return b;
@@ -521,6 +534,20 @@ public class ExploreActivity extends Activity {
         lp.rightMargin = Math.round(52 * k);
         lp.topMargin = Math.round(66 * k) + Math.round(11 * k) - size / 2;   // centred on the bars
         return lp;
+    }
+
+    private boolean cornersShown = true;
+
+    /** The menu button, Home Settings and the clock sit at the top of Home only: they fade out as the page scrolls. */
+    private void corners(boolean show) {
+        if (show == cornersShown) return;
+        cornersShown = show;
+        for (View v : new View[] {burger, settingsButton, clockTime == null ? null : (View) clockTime.getParent()}) {
+            if (v == null) continue;
+            v.animate().cancel();
+            v.animate().alpha(show ? 1 : 0).translationY(show ? 0 : -16 * k).setDuration(show ? 260 : 180)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
     }
 
     /** The time, large, with the day under it: top right, beside Home Settings. */
@@ -1070,7 +1097,10 @@ public class ExploreActivity extends Activity {
                         focusBelowBar = -1;
                         focusUnderBar();
                     }
-                    if (left[0] == 0) rows.setMinimumHeight(0);
+                    if (left[0] == 0) {
+                        dropSlotsFrom(list.size());   // a pick with fewer rows than before: the old extra ones go
+                        rows.setMinimumHeight(0);
+                    }
                     status.setVisibility(placed.isEmpty() ? View.VISIBLE : View.GONE);
                     if (placed.isEmpty() && left[0] == 0 && Tmdb.hasKey()) {
                         status.setText(Ui.tr("Não deu para buscar os títulos agora. Confira a internet da TV.", "Couldn't fetch titles now. Check the TV's internet."));
@@ -1086,12 +1116,28 @@ public class ExploreActivity extends Activity {
         return -1;
     }
 
-    /** After a pick on the bar: the first poster of the first row under it. */
+    /** After a pick on the bar: the first poster of the first row under it, with the bar settled near the top. */
     private void focusUnderBar() {
         if (bar == null || bar.getParent() != rows || menuOpen || overlay != null) return;
         for (int i = rows.indexOfChild(bar) + 1; i < rows.getChildCount(); i++) {
             View v = rows.getChildAt(i);
-            if (v != status && v.getVisibility() == View.VISIBLE && v.requestFocus()) return;
+            if (v != status && v.getVisibility() == View.VISIBLE && v.requestFocus()) {
+                // Always the same place, whatever the scroll was: the bar a little under the top, the row right below it.
+                scroll.post(() -> scroll.aimAt(Math.max(0, rows.getTop() + bar.getTop() - Math.round(40 * k))));
+                return;
+            }
+        }
+    }
+
+    private void dropSlotsFrom(int size) {
+        java.util.Iterator<Map.Entry<Integer, View>> it = placed.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<Integer, View> e = it.next();
+            if (e.getKey() < size) continue;
+            View v = e.getValue();
+            if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
+            placedKeys.remove(e.getKey());
+            it.remove();
         }
     }
 
@@ -1949,6 +1995,8 @@ public class ExploreActivity extends Activity {
         hero = new FrameLayout(this);
         int bleed = Math.round((HERO_H + HERO_BLEED) * k);   // the picture runs on behind the first row
         FadeOut picture = new FadeOut(this, 0.42f);
+        // The mask needs an offscreen pass; as a hardware layer it's drawn once per picture, not on every frame of a scroll.
+        picture.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         heroImage = new ImageView(this);
         heroImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
         picture.addView(heroImage, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, bleed));
@@ -2511,7 +2559,7 @@ public class ExploreActivity extends Activity {
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);
         t.setOnFocusChangeListener((v, has) -> {
-            v.animate().scaleX(has ? 1.18f : 1f).scaleY(has ? 1.18f : 1f).setDuration(140).start();
+            TvUi.lift(v, has, 1.18f, 0, 0);
             restyleWord((TextView) v);
         });
         return t;
@@ -2536,11 +2584,12 @@ public class ExploreActivity extends Activity {
         int gen = ++generation;
         focusBelowBar = gen;
         rows.setMinimumHeight(rows.getHeight());   // the page keeps its length while the rows swap: no jump to the top
-        for (View v : placed.values()) if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
-        placed.clear();
-        placedKeys.clear();
-        status.setText(Ui.tr("Carregando…", "Loading…"));
-        status.setVisibility(View.VISIBLE);
+        // The old rows stay until each slot's new row replaces it (or the load ends without one): the page never empties
+        // and reshuffles under the focus.
+        if (placed.isEmpty()) {
+            status.setText(Ui.tr("Carregando…", "Loading…"));
+            status.setVisibility(View.VISIBLE);
+        }
         io.execute(() -> {
             List<Section> list = sections(HOME);
             main.post(() -> {

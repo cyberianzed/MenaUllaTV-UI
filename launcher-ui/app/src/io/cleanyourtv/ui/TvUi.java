@@ -40,7 +40,18 @@ final class TvUi {
     static final int ROW_MAX = 10;
     static final int POSTER_W = 210, POSTER_H = 315, POSTER_GAP = 26;
     /** Like the home screen's cards: they grow this much when focused. */
-    private static final float GROW = 0.08f;
+    private static final float GROW = 0.10f;
+
+    // Focus motion in the Apple TV way: in with a soft spring (a touch past, then it settles), out with a quick ease.
+    private static final android.view.animation.Interpolator SPRING = new android.view.animation.OvershootInterpolator(1.1f);
+    private static final android.view.animation.Interpolator EASE = new android.view.animation.DecelerateInterpolator(1.6f);
+
+    /** Lifts a focused view toward the viewer (scale, shadow, a few pixels up) and lets it back down when it loses the focus. */
+    static void lift(View v, boolean has, float scale, float z, float up) {
+        v.animate().cancel();
+        v.animate().scaleX(has ? scale : 1f).scaleY(has ? scale : 1f).translationZ(has ? z : 0).translationY(has ? -up : 0)
+                .setInterpolator(has ? SPRING : EASE).setDuration(has ? 320 : 200).start();
+    }
 
     static float k(Activity a) {
         return a.getResources().getDisplayMetrics().widthPixels / 1920f;
@@ -79,7 +90,7 @@ final class TvUi {
         v.setForeground(look);
         v.setOnFocusChangeListener((view, has) -> {
             float s = has ? 1 + GROW : 1f;
-            view.animate().scaleX(s).scaleY(s).translationZ(has ? 30 * k : 0).translationY(has ? -4 * k : 0).setDuration(180).start();
+            lift(view, has, s, 42 * k, 8 * k);
             look.animateTo(has ? 1 : 0);
             if (caption != null) {
                 caption.setTextColor(has ? INK : DIM);
@@ -152,7 +163,10 @@ final class TvUi {
         v.setBackground(round(0x17FFFFFF, radius));
         v.setFocusable(true);
         v.setFocusableInTouchMode(true);
-        v.setOnFocusChangeListener((view, has) -> view.setBackground(round(has ? 0x59FFFFFF : 0x17FFFFFF, radius)));
+        v.setOnFocusChangeListener((view, has) -> {
+            view.setBackground(round(has ? 0x59FFFFFF : 0x17FFFFFF, radius));
+            lift(view, has, 1.04f, 10 * k, 0);
+        });
     }
 
     /** A pill button: white when focused. */
@@ -168,7 +182,7 @@ final class TvUi {
         b.setOnFocusChangeListener((v, has) -> {
             b.setBackground(round(has ? INK : 0x33FFFFFF, 40 * k));
             b.setTextColor(has ? 0xFF14161A : INK);
-            v.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).translationZ(has ? 12 * k : 0).setDuration(140).start();
+            lift(v, has, 1.07f, 14 * k, 0);
         });
         b.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         return b;
@@ -439,7 +453,7 @@ final class TvUi {
             b.setBackground(round(has ? INK : 0x33FFFFFF, 40 * k));
             icon.color(has ? 0xFF14161A : INK);
             if (text != null) text.setTextColor(has ? 0xFF14161A : INK);
-            v.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).translationZ(has ? 12 * k : 0).setDuration(140).start();
+            lift(v, has, 1.07f, 14 * k, 0);
         });
         b.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         return b;
@@ -589,6 +603,14 @@ final class TvUi {
         @Override protected void onScrollChanged(int l, int t, int oldl, int oldt) {
             super.onScrollChanged(l, t, oldl, oldt);
             if (t == aim) aim = -1;
+        }
+
+        /** Glides to y, and focus moves made on the way count from there (not from wherever the glide is). */
+        void aimAt(int y) {
+            int max = getChildCount() == 0 ? 0 : Math.max(0, getChildAt(0).getHeight() - getHeight());
+            aim = Math.max(0, Math.min(max, y));
+            if (aim == getScrollY()) aim = -1;
+            else smoothScrollTo(0, aim);
         }
 
         void top() {
