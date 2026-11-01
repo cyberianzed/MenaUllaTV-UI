@@ -72,6 +72,15 @@ final class Prefs {
 
     static void setTheme(String v) { put("theme", v); }
 
+    /** Which home screen answers Home: "classic" (HomeView) or "explore" (ExploreHomeActivity). */
+    static String homeStyle() {
+        return "explore".equals(sp().getString("home_style", "classic")) ? "explore" : "classic";
+    }
+
+    static void setHomeStyle(String v) {
+        if (!v.equals(homeStyle())) put("home_style", "explore".equals(v) ? "explore" : "classic");
+    }
+
     /**
      * The screensaver: "photos" (the picks, as before), "aurora" (the clock over the sky, without photos) or "google"
      * (Google TV's own screensaver, which can show a Google Photos album).

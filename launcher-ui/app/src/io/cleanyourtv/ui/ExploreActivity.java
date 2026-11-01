@@ -330,6 +330,7 @@ public class ExploreActivity extends Activity {
         super.onResume();
         if (isHome()) {
             TvConfig.apply(this);
+            if (ExploreHomeActivity.switchTo(this, Prefs.homeStyle())) return;   // "classic" again: HomeActivity answers Home
             if (prefsVersion != Prefs.version) {   // a new language, key or shelf from Settings or config.json: start over
                 prefsVersion = Prefs.version;
                 recreate();
@@ -612,6 +613,13 @@ public class ExploreActivity extends Activity {
         }
         if (isHome() && RemoteKeys.onKey(this, e)) return true;
         if (moving != null) return moveKey(code, down);
+        if (isHome() && down && e.isLongPress() && (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER)) {
+            View f = getCurrentFocus();   // OK held on a remote: the key repeats as a long press
+            if (f != null && appsLine != null && f.getParent() == appsLine && f.getTag() instanceof String) {
+                startMoving(f, (String) f.getTag());
+                return true;
+            }
+        }
         if (isHome() && overlay == null && !menuOpen && down && code == KeyEvent.KEYCODE_DPAD_LEFT
                 && appsLine != null && appsLine.getChildCount() > 0 && getCurrentFocus() == appsLine.getChildAt(0)) {
             showPage(APPS);   // Left from the first app: every app on the TV

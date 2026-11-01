@@ -159,7 +159,7 @@ final class HomeRows {
             while (q != null && q.moveToNext() && out.size() < 8) {
                 if (!TvContract.Channels.TYPE_PREVIEW.equals(str(q, "type"))) continue;
                 String pkg = str(q, "package_name");
-                if (pkg.isEmpty() || !apps.contains(pkg) || pkg.equals(c.getPackageName())) continue;
+                if (pkg.isEmpty() || !apps.contains(pkg) || pkg.equals(c.getPackageName()) || Prefs.hidden().contains(pkg)) continue;
                 String app;
                 try {
                     app = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));

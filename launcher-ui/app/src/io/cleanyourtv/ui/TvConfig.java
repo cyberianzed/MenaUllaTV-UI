@@ -80,6 +80,7 @@ final class TvConfig {
                         String.valueOf(city.getDouble("longitude")));
             }
             if (o.has("theme")) Prefs.setTheme(o.getString("theme"));
+            if (o.has("home_style")) Prefs.setHomeStyle(o.getString("home_style"));
             if (o.has("temperature")) Prefs.setTemperature(o.getString("temperature"));
             if (o.has("weather")) Prefs.setWeather(o.getBoolean("weather"));
             if (o.has("language")) Prefs.setLanguage(o.getString("language"));

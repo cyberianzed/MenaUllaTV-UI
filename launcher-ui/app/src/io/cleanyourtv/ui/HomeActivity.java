@@ -25,6 +25,7 @@ public class HomeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         TvConfig.apply(this);
+        if (ExploreHomeActivity.switchTo(this, Prefs.homeStyle())) return;   // home_style "explore": that one answers Home now
         if (prefsVersion != Prefs.version) {
             prefsVersion = Prefs.version;
             HomeData.get(this).settingsChanged();
