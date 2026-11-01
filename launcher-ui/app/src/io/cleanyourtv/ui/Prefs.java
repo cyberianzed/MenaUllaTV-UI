@@ -231,10 +231,10 @@ final class Prefs {
 
     static void setAppChannels(org.json.JSONObject v) { put("app_channels", v.toString()); }
 
-    /** config.json "bar_font": the language · genre bar's face, "anton" (default), "bebas" or "black". */
+    /** config.json "bar_font": the language · genre bar's face, "bebas" (default), "anton" or "black". */
     static String barFont() {
-        String v = sp().getString("bar_font", "anton");
-        return v.equals("bebas") || v.equals("black") ? v : "anton";
+        String v = sp().getString("bar_font", "bebas");
+        return v.equals("anton") || v.equals("black") ? v : "bebas";
     }
 
     static void setBarFont(String v) { put("bar_font", v); }

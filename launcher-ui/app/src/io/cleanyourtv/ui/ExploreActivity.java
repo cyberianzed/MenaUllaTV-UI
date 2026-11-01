@@ -278,7 +278,7 @@ public class ExploreActivity extends Activity {
                     "No TMDB key: add yours to launcher-ui/config.properties and install again."));
             return;
         }
-        if (Tmdb.hasKey()) io.execute(() -> {
+        if (Tmdb.hasKey()) background(() -> {
             services();
             main.post(() -> { if (!isFinishing()) fillMenu(); });
         });
@@ -371,7 +371,17 @@ public class ExploreActivity extends Activity {
         }
     };
 
+    /** Work off the main thread; none once the screen is gone (a recreate() for a new config.json closes it mid-load). */
+    private void background(Runnable r) {
+        if (io.isShutdown()) return;
+        try {
+            io.execute(r);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+        }
+    }
+
     @Override protected void onDestroy() {
+        main.removeCallbacksAndMessages(null);   // posted work (the backdrop, the banner, the clock) dies with the screen
         if (isHome()) {
             try {
                 unregisterReceiver(screenOn);
@@ -415,7 +425,7 @@ public class ExploreActivity extends Activity {
         String url = backWant;
         if (url == null || url.equals(backUrl)) return;
         backUrl = url;
-        io.execute(() -> {
+        background(() -> {
             Bitmap b = Images.fetch(url);
             if (b == null) return;
             Bitmap soft = dimmed(blur(Bitmap.createScaledBitmap(b, 160, Math.max(1, Math.round(160f * b.getHeight() / b.getWidth())), true), 3));
@@ -1042,7 +1052,7 @@ public class ExploreActivity extends Activity {
                     return;
                 }
         }
-        io.execute(() -> {   // the rows don't wait for the banner (on Home it asks for picks, title by title)
+        background(() -> {   // the rows don't wait for the banner (on Home it asks for picks, title by title)
             List<Section> list = sections(id);
             main.post(() -> {
                 if (gen != generation || isFinishing()) return;
@@ -1051,7 +1061,7 @@ public class ExploreActivity extends Activity {
             });
         });
         if (withHero) {
-            io.execute(() -> {
+            background(() -> {
                 List<Object[]> banner = heroItems(id);
                 main.post(() -> { if (gen == generation && !isFinishing()) setHero(banner); });
             });
@@ -1094,7 +1104,7 @@ public class ExploreActivity extends Activity {
             final int slot = i;
             final Section s = list.get(i);
             if (personalOnly && !s.personal) continue;
-            io.execute(() -> {
+            background(() -> {
                 List<Tmdb.Title> titles = new ArrayList<>();
                 List<HomeRows.Card> cards = null;
                 try {
@@ -1314,7 +1324,7 @@ public class ExploreActivity extends Activity {
             tabBody.removeAllViews();
             tabBody.addView(note(Ui.tr("Carregando…", "Loading…")));
         }
-        io.execute(() -> {
+        background(() -> {
             List<Tmdb.Title> titles = new ArrayList<>();
             String problem = null;
             try {
@@ -1461,7 +1471,7 @@ public class ExploreActivity extends Activity {
             if (loading || done || page >= 25 || this != feed) return;
             loading = true;
             int want = page + 1;
-            io.execute(() -> {
+            background(() -> {
                 List<Tmdb.Title> got;
                 try {
                     got = pager.page(want);
@@ -2149,7 +2159,7 @@ public class ExploreActivity extends Activity {
         if (hero.hasFocus()) followFocus(hero);
         int at = heroAt;
         FrameLayout shown = hero;
-        io.execute(() -> {
+        background(() -> {
             String logo = logo(t);
             if (logo == null) return;
             main.post(() -> {
@@ -2551,8 +2561,8 @@ public class ExploreActivity extends Activity {
     }
 
     /**
-     * The bar's face, config.json "bar_font": "anton" (tall, condensed; the default), "bebas" (Bebas Neue, like Netflix's
-     * logo) or "black" (Roboto Black stretched wide). {typeface, size step, letter spacing, horizontal scale}.
+     * The bar's face, config.json "bar_font": "bebas" (Bebas Neue, like Netflix's logo; the default), "anton" (tall,
+     * condensed) or "black" (Roboto Black stretched wide). {typeface, size step, letter spacing, horizontal scale}.
      */
     private Object[] barFace;
 
@@ -2584,7 +2594,6 @@ public class ExploreActivity extends Activity {
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);
         t.setOnFocusChangeListener((v, has) -> {
-            TvUi.lift(v, has, 1.18f, 0, 0);
             restyleWord((TextView) v);
         });
         return t;
@@ -2602,6 +2611,9 @@ public class ExploreActivity extends Activity {
         boolean line = on && !"•".contentEquals(t.getText());
         t.setPaintFlags(line ? t.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
                 : t.getPaintFlags() & ~android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+        // Focused: well up in size; the pick stays a little bigger than the rest after the focus leaves it.
+        boolean focused = t.hasFocus();
+        if (focused || on || t.getScaleX() != 1f) TvUi.lift(t, focused || on, focused ? 1.3f : 1.12f, 0, 0);
     }
 
     /** The bar picked something: the rows under it are asked again; the banner, shelf and bar stay. */
@@ -2616,7 +2628,7 @@ public class ExploreActivity extends Activity {
             status.setText(Ui.tr("Carregando…", "Loading…"));
             status.setVisibility(View.VISIBLE);
         }
-        io.execute(() -> {
+        background(() -> {
             List<Section> list = sections(HOME);
             main.post(() -> {
                 if (gen != generation || isFinishing()) return;
@@ -2660,7 +2672,7 @@ public class ExploreActivity extends Activity {
         lp.topMargin = Math.round(20 * k);
         panel.setLayoutParams(lp);
         int gen = generation;
-        io.execute(() -> {
+        background(() -> {
             List<String[]> apps = HomeRows.apps(this);
             List<Bitmap> tiles = new ArrayList<>();
             for (String[] app : apps) tiles.add(HomeApps.appTile(this, null, app[0], 0));
@@ -2679,7 +2691,7 @@ public class ExploreActivity extends Activity {
     /** Every app on the TV, by name, as a grid of their TV art. */
     private void buildAllApps() {
         int gen = generation;
-        io.execute(() -> {
+        background(() -> {
             List<String[]> apps = HomeRows.allApps(this);
             List<Bitmap> tiles = new ArrayList<>();
             for (String[] app : apps) tiles.add(HomeApps.appTile(this, null, app[0], 0));
