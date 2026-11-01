@@ -111,6 +111,32 @@ logged, never guessed. [`config.example.json`](config.example.json) has them all
 A button's action is a package, `input:<TV input id>`, `live`, `settings`, `home`, `tmdb:explore`, `tmdb:watchlist`,
 or `""` for what the button did before.
 
+## Customisation: the Explore-style home screen
+
+This fork adds a second home screen, `ExploreHomeActivity`: Explore's banner and rows become the home screen.
+
+- **The banner** fills the top half (Malayalam hits first, then picks for you, then what's big today).
+- **Every app sits on a glass shelf** under the banner, and it scrolls. Hold OK on an app to move it: ← → to move,
+  OK to drop. The order is saved as the shelf (Settings › Shelf shows it). Left from the first app opens **All apps**.
+- **Shortcuts** sit under the shelf: All apps, Wi-Fi & Network, Home Settings, TV Settings, Live TV and connected
+  HDMI inputs.
+- **The rows, in order:** Continue watching, Trending in Malayalam, My list / Recommended for you / Because you
+  watched, New Malayalam films (MovieShelf's rules, when MovieShelf is installed), then each app's own channel
+  (YouTube's, when it publishes one), then Explore's usual rows.
+- **Soft navigation sounds** play as the focus moves. They follow the TV's "System sounds" setting.
+
+Continue watching and the app channels come from Android TV's own listings. They need the "TV listings" permission:
+accept the prompt on the TV, or grant it with
+`adb shell pm grant io.cleanyourtv.ui android.permission.READ_TV_LISTINGS`. Only what apps share is shown: some
+apps keep their Continue Watching inside Google TV's own home screen.
+
+Switch between the two home screens:
+
+```bash
+adb shell cmd package set-home-activity --user 0 io.cleanyourtv.ui/.ExploreHomeActivity   # Explore-style
+adb shell cmd package set-home-activity --user 0 io.cleanyourtv.ui/.HomeActivity          # classic
+```
+
 ## More
 
 - [`docs/ui/DESIGN.md`](../docs/ui/DESIGN.md): the design of the home screen.

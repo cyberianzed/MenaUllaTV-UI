@@ -60,7 +60,13 @@ public class ExploreActivity extends Activity {
     static final String EXTRA_SECTION = "section";
     private static final String HOME = "home", SEARCH = "search", LIST = "watchlist", TOP = "top", MOVIES = "movie",
             SHOWS = "tv", KIDS = "kids", ANIME = "anime", CATS = "categories", SETTINGS = "settings", SERVICE = "service:",
-            SAVED = "f:";
+            SAVED = "f:", APPS = "apps";
+    private static final String MOVIESHELF = "com.movieshelf.app";
+
+    /** True for HomeActivity: Explore is the home screen, with the apps on glass under the banner. */
+    boolean isHome() {
+        return false;
+    }
     /** The menu's items the person can move or hide, in their first order (services and saved filters follow). */
     private static final String[] MOVABLE = {TOP, MOVIES, SHOWS, KIDS, ANIME, CATS};
     private static final long HERO_MS = 9000;
@@ -129,6 +135,7 @@ public class ExploreActivity extends Activity {
     private static final class Section {
         final String title;
         final Callable<List<Tmdb.Title>> load;
+        Callable<List<HomeRows.Card>> cards;   // what another app shares (Continue Watching, a channel) instead of titles
         String morePath, moreKind;
         Runnable more;
         boolean personal, ranked;
@@ -136,6 +143,12 @@ public class ExploreActivity extends Activity {
         Section(String title, Callable<List<Tmdb.Title>> load) {
             this.title = title;
             this.load = load;
+        }
+
+        static Section cards(String title, Callable<List<HomeRows.Card>> cards) {
+            Section s = new Section(title, null);
+            s.cards = cards;
+            return s;
         }
 
         Section more(String path, String kind) {
@@ -244,21 +257,85 @@ public class ExploreActivity extends Activity {
         root.addView(shade, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(buildMenu(), new FrameLayout.LayoutParams(Math.round(560 * k), ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
-        scroll.getViewTreeObserver().addOnGlobalFocusChangeListener((was, now) -> followFocus(now));
-        if (!Tmdb.hasKey()) {
+        if (isHome()) getWindow().setBackgroundDrawable(null);
+        audio = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        root.getViewTreeObserver().addOnGlobalFocusChangeListener((was, now) -> {
+            followFocus(now);
+            tick(was, now);
+        });
+        if (!Tmdb.hasKey() && !isHome()) {
             header(Ui.tr("Explorar", "Explore"), Ui.tr("Sem chave do TMDB: coloque a sua em launcher-ui/config.properties e instale de novo.",
                     "No TMDB key: add yours to launcher-ui/config.properties and install again."));
             return;
         }
-        io.execute(() -> {
+        if (Tmdb.hasKey()) io.execute(() -> {
             services();
             main.post(() -> { if (!isFinishing()) fillMenu(); });
         });
+        if (isHome() && !HomeRows.canRead(this)) {   // Continue Watching and the apps' channels need "TV listings"
+            try {
+                requestPermissions(new String[] {HomeRows.LISTINGS}, 7);
+            } catch (RuntimeException ignored) {
+            }
+        }
         showPage(fromBookmark ? LIST : HOME);
+    }
+
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (code == 7 && HomeRows.canRead(this) && HOME.equals(current)) showPage(HOME);
+    }
+
+    // MARK: - As the home screen
+
+    private int prefsVersion = Prefs.version;
+
+    /** Home pressed while home: back to the top of Home, menu and overlays closed. */
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (!isHome()) return;
+        closeOverlay();
+        if (menuOpen) closeMenu(false);
+        stopMoving(false);
+        if (!HOME.equals(current)) showPage(HOME);
+        else {
+            scroll.top();
+            focusPage();
+        }
+        String what = intent == null ? null : intent.getStringExtra("open");
+        if ("watchlist".equals(what) && Tmdb.hasKey()) showPage(LIST);
+        else if ("explore".equals(what)) RemoteKeys.run(this, "tmdb:explore");
+    }
+
+    // MARK: - Sounds: a soft tick as the focus moves, like Google TV's
+
+    private android.media.AudioManager audio;
+    private int lastKey;
+    private long lastKeyAt;
+
+    private void tick(View was, View now) {
+        if (audio == null || was == null || now == null || android.os.SystemClock.uptimeMillis() - lastKeyAt > 400) return;
+        int fx;
+        switch (lastKey) {
+            case KeyEvent.KEYCODE_DPAD_LEFT: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_LEFT; break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_RIGHT; break;
+            case KeyEvent.KEYCODE_DPAD_UP: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_UP; break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_DOWN; break;
+            default: return;
+        }
+        audio.playSoundEffect(fx);
     }
 
     @Override protected void onResume() {
         super.onResume();
+        if (isHome()) {
+            TvConfig.apply(this);
+            if (prefsVersion != Prefs.version) {   // a new language, key or shelf from Settings or config.json: start over
+                prefsVersion = Prefs.version;
+                recreate();
+                return;
+            }
+        }
         if (hero != null && !menuOpen) restartHero();
         if (resumedOnce && Tmdb.hasKey()) {   // back from a title page: the list, the picks and what was seen may have changed
             refreshPersonal();
@@ -529,6 +606,24 @@ public class ExploreActivity extends Activity {
         keyAt = android.os.SystemClock.uptimeMillis();
         int code = e.getKeyCode();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        if (down) {
+            lastKey = code;
+            lastKeyAt = keyAt;
+        }
+        if (isHome() && RemoteKeys.onKey(this, e)) return true;
+        if (moving != null) return moveKey(code, down);
+        if (isHome() && overlay == null && !menuOpen && down && code == KeyEvent.KEYCODE_DPAD_LEFT
+                && appsLine != null && appsLine.getChildCount() > 0 && getCurrentFocus() == appsLine.getChildAt(0)) {
+            showPage(APPS);   // Left from the first app: every app on the TV
+            return true;
+        }
+        if (isHome() && overlay == null && !menuOpen && code == KeyEvent.KEYCODE_BACK && HOME.equals(current)) {
+            if (!down && !e.isCanceled()) {   // Back on the home screen: to the top, nowhere else to go
+                scroll.top();
+                focusPage();
+            }
+            return true;
+        }
         if (overlay != null) {
             if (code == KeyEvent.KEYCODE_BACK) {
                 if (!down) closeOverlay();
@@ -557,7 +652,7 @@ public class ExploreActivity extends Activity {
                 return true;
             }
         }
-        if (code == KeyEvent.KEYCODE_BACK && !fromBookmark && !HOME.equals(current) && Tmdb.hasKey()) {
+        if (code == KeyEvent.KEYCODE_BACK && !fromBookmark && !HOME.equals(current) && (Tmdb.hasKey() || isHome())) {
             if (!down && !e.isCanceled()) showPage(HOME);
             return true;
         }
@@ -655,6 +750,7 @@ public class ExploreActivity extends Activity {
             case HOME: return Ui.tr("Início", "Home");
             case LIST: return Ui.tr("Minha lista", "My list");
             case SETTINGS: return Ui.tr("Ajustes", "Settings");
+            case APPS: return Ui.tr("Todos os apps", "All apps");
             default:
                 if (id.startsWith(SAVED)) {
                     JSONObject s = saved().optJSONObject(id);
@@ -694,9 +790,12 @@ public class ExploreActivity extends Activity {
         page.removeAllViews();
         scroll.top();
         restyleMenu();
-        boolean withHero = id.equals(HOME) || id.equals(TOP) || id.startsWith(SERVICE);
+        stopMoving(false);
+        appsLine = null;
+        boolean homeScreen = isHome() && id.equals(HOME);
+        boolean withHero = (id.equals(HOME) || id.equals(TOP) || id.startsWith(SERVICE)) && Tmdb.hasKey();
         if (withHero) page.addView(buildHero());
-        else header(label(id), subtitle(id));
+        else if (!homeScreen) header(label(id), subtitle(id));
         rows = new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);
         rows.setClipChildren(false);
@@ -704,12 +803,21 @@ public class ExploreActivity extends Activity {
         rows.setPadding(Math.round(INSET * k), 0, 0, 0);
         LinearLayout.LayoutParams rowsLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         if (withHero) rowsLp.topMargin = -Math.round(HERO_BLEED * k);   // the first row sits over the banner's picture
+        else if (homeScreen) rowsLp.topMargin = Math.round(90 * k);
         page.addView(rows, rowsLp);
+        if (homeScreen) {
+            rows.addView(appsRow());
+            rows.addView(shortcutsRow());
+        }
         status = TvUi.text(this, k, 26, Ui.regular, TvUi.DIM);
         status.setPadding(0, Math.round(30 * k), 0, 0);
-        status.setText(Ui.tr("Carregando…", "Loading…"));
+        status.setText(homeScreen && !Tmdb.hasKey()
+                ? Ui.tr("Coloque sua chave do TMDB em Ajustes do Início › Conta TMDB para ver filmes aqui.",
+                        "Add your TMDB key in Home Settings › TMDB account to see movies here.")
+                : Ui.tr("Carregando…", "Loading…"));
         rows.addView(status);
         switch (id) {
+            case APPS: buildAllApps(); return;
             case SEARCH: buildFilterPage(true, null); return;
             case CATS: buildFilterPage(false, null); return;
             case LIST: buildList(); return;
@@ -746,6 +854,7 @@ public class ExploreActivity extends Activity {
             case CATS: return Ui.tr("Escolha categorias e ano no filtro; salve para ter no menu", "Pick categories and year in the filter; save it to the menu");
             case SETTINGS: return Ui.tr("Conta, serviços e a ordem do menu", "Account, services and the menu's order");
             case MOVIES: case SHOWS: case KIDS: case ANIME: return Ui.tr("Nos seus serviços · dados do TMDB", "On your services · data from TMDB");
+            case APPS: return Ui.tr("Tudo o que está instalado nesta TV · Voltar para o início", "Everything installed on this TV · Back for Home");
             default: return id.startsWith(SAVED) ? Ui.tr("Filtro salvo", "Saved filter") : Ui.tr("Dados do TMDB", "Data from TMDB");
         }
     }
@@ -772,21 +881,23 @@ public class ExploreActivity extends Activity {
             final Section s = list.get(i);
             if (personalOnly && !s.personal) continue;
             io.execute(() -> {
-                List<Tmdb.Title> titles;
+                List<Tmdb.Title> titles = new ArrayList<>();
+                List<HomeRows.Card> cards = null;
                 try {
-                    titles = s.load.call();
+                    if (s.cards != null) cards = s.cards.call();
+                    else titles = s.load.call();
                 } catch (Exception e) {
                     AppLog.w("explore " + s.title + ": " + e.getMessage());
-                    titles = new ArrayList<>();
                 }
                 final List<Tmdb.Title> got = titles;
+                final List<HomeRows.Card> gotCards = cards;
                 main.post(() -> {
                     if (gen != generation || isFinishing()) return;
-                    place(slot, s, got);
+                    place(slot, s, got, gotCards);
                     if (personalOnly) return;
                     left[0]--;
                     status.setVisibility(placed.isEmpty() ? View.VISIBLE : View.GONE);
-                    if (placed.isEmpty() && left[0] == 0) {
+                    if (placed.isEmpty() && left[0] == 0 && Tmdb.hasKey()) {
                         status.setText(Ui.tr("Não deu para buscar os títulos agora. Confira a internet da TV.", "Couldn't fetch titles now. Check the TV's internet."));
                     }
                 });
@@ -803,19 +914,21 @@ public class ExploreActivity extends Activity {
     }
 
     /** Puts a section in its slot (they arrive in any order); an unchanged one stays, with the focus where it is. */
-    private void place(int slot, Section s, List<Tmdb.Title> titles) {
+    private void place(int slot, Section s, List<Tmdb.Title> titles, List<HomeRows.Card> cards) {
         StringBuilder keys = new StringBuilder(s.title);
-        for (Tmdb.Title t : titles) keys.append(',').append(t.key());
+        if (cards != null) for (HomeRows.Card c : cards) keys.append(',').append(c.key).append('@').append(c.position);
+        else for (Tmdb.Title t : titles) keys.append(',').append(t.key());
         if (keys.toString().equals(placedKeys.get(slot))) return;
         placedKeys.put(slot, keys.toString());
         View old = placed.remove(slot);
         boolean hadFocus = old != null && old.hasFocus();
         if (old != null) rows.removeView(old);
-        if (titles.isEmpty()) {
+        if (cards != null ? cards.isEmpty() : titles.isEmpty()) {
             if (hadFocus) focusPage();
             return;
         }
-        View view = s.ranked ? ranked(s, titles) : TvUi.row(this, k, s.title, titles, this::open, moreOf(s), Math.round(INSET * k));
+        View view = cards != null ? HomeRows.cardsRow(this, k, s.title, cards, Math.round(INSET * k), c -> HomeRows.open(this, c))
+                : s.ranked ? ranked(s, titles) : TvUi.row(this, k, s.title, titles, this::open, moreOf(s), Math.round(INSET * k));
         placed.put(slot, view);
         int index = rows.indexOfChild(status) + 1;
         for (Map.Entry<Integer, View> e : placed.entrySet()) {
@@ -1829,9 +1942,14 @@ public class ExploreActivity extends Activity {
         Set<String> seen = new HashSet<>();
         try {
             if (id.equals(HOME)) {
+                if (isHome()) {   // Malayalam first: what's big in Kerala right now
+                    List<Tmdb.Title> ml = malayalam();
+                    for (int i = 0; i < ml.size() && out.size() < 3; i++) addHero(out, seen, ml.get(i), Ui.tr("Em alta em malaiala", "Trending in Malayalam"));
+                }
                 String picked = Ui.tr("Recomendado para você", "Picked for you");
                 List<Tmdb.Title> mine = forYou();
-                for (int i = 0; i < mine.size() && out.size() < 2; i++) addHero(out, seen, mine.get(i), picked);
+                int picks = out.size() + 2;
+                for (int i = 0; i < mine.size() && out.size() < picks; i++) addHero(out, seen, mine.get(i), picked);
                 for (Tmdb.Title t : Tmdb.titles(Tmdb.get("/trending/all/day"), "movie")) {
                     if (out.size() >= 7) break;
                     addHero(out, seen, t, Ui.tr("Em alta hoje", "Trending today"));
@@ -1875,6 +1993,15 @@ public class ExploreActivity extends Activity {
                 out.add(new Section(Ui.tr("Top 10 filmes hoje", "Top 10 movies today"), () -> top(Tmdb.titles(Tmdb.get("/trending/movie/day"), "movie"))).ranked());
                 return out;
             case HOME: {
+                if (isHome()) {
+                    out.add(Section.cards(Ui.tr("Continuar assistindo", "Continue watching"), () -> HomeRows.watchNext(this)).personal());
+                    if (!Tmdb.hasKey()) {
+                        channels(out);
+                        return out;
+                    }
+                    out.add(new Section(Ui.tr("Em alta em malaiala", "Trending in Malayalam"), this::malayalam)
+                            .more(discoverPath("movie", malayalamParams()), "movie"));
+                }
                 out.add(new Section(Ui.tr("Minha lista", "My list"), () -> Tmdb.watchlist(this)).personal().more(() -> showPage(LIST)));
                 out.add(new Section(Ui.tr("Recomendado para você", "Recommended for you"), this::forYou).personal());
                 List<Tmdb.Title> seen = Tmdb.seen(this);
@@ -1883,6 +2010,13 @@ public class ExploreActivity extends Activity {
                     out.add(new Section(Ui.tr("Porque você viu ", "Because you watched ") + last.name,
                             () -> fresh(Tmdb.titles(Tmdb.get("/" + last.kind + "/" + last.id + "/recommendations"), last.kind)))
                             .personal().more("/" + last.kind + "/" + last.id + "/recommendations", last.kind));
+                }
+                if (isHome()) {
+                    if (HomeApps.launchIntent(getPackageManager(), MOVIESHELF) != null) {
+                        out.add(new Section(Ui.tr("Novos filmes em malaiala · MovieShelf", "New Malayalam films · MovieShelf"), this::movieShelf)
+                                .more(() -> launch(MOVIESHELF)));
+                    }
+                    channels(out);
                 }
                 out.add(new Section(Ui.tr("Em alta hoje", "Trending today"), () -> Tmdb.titles(Tmdb.get("/trending/all/day"), "movie"))
                         .more("/trending/all/day", "movie"));
@@ -1924,6 +2058,220 @@ public class ExploreActivity extends Activity {
                 return out;
             }
         }
+    }
+
+    // MARK: - The home screen's own rows
+
+    private static String day(int daysAgo) {
+        Calendar c = Calendar.getInstance();
+        c.add(Calendar.DAY_OF_YEAR, -daysAgo);
+        return new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(c.getTime());
+    }
+
+    /** Malayalam films out in the last four months, most popular first. */
+    private static String malayalamParams() {
+        return "&with_original_language=ml&sort_by=popularity.desc&primary_release_date.gte=" + day(120)
+                + "&primary_release_date.lte=" + day(0);
+    }
+
+    private List<Tmdb.Title> malayalam() throws Exception {
+        return discover("movie", malayalamParams());
+    }
+
+    /** MovieShelf's own rules: Malayalam, out in the last two months, newest first, rated 5 or more by 3+ votes. */
+    private List<Tmdb.Title> movieShelf() throws Exception {
+        return discover("movie", "&with_original_language=ml&sort_by=primary_release_date.desc&primary_release_date.gte=" + day(62)
+                + "&primary_release_date.lte=" + day(0) + "&vote_average.gte=5&vote_count.gte=3");
+    }
+
+    /** One row per preview channel another app shares (YouTube's, when it has one). */
+    private void channels(List<Section> out) {
+        for (Object[] ch : HomeRows.channels(this)) {
+            long id = (Long) ch[1];
+            out.add(Section.cards((String) ch[0], () -> HomeRows.channelPrograms(this, id)).personal());
+        }
+    }
+
+    private void launch(String pkg) {
+        Intent app = HomeApps.launchIntent(getPackageManager(), pkg);
+        if (app == null) return;
+        try {
+            startActivity(app.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException e) {
+            Toast.makeText(this, Ui.tr("Não deu para abrir o app.", "Couldn't open the app."), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openApp(View card, String pkg) {
+        HomeApps.Item it = HomeApps.app(pkg, pkg);
+        if (!HomeApps.open(this, it, card, 0, 0, card.getWidth(), card.getHeight())) launch(pkg);
+    }
+
+    private TvUi.Row appsLine;
+
+    /** Every app on a glass shelf; hold OK on one to move it. */
+    private View appsRow() {
+        FrameLayout panel = new FrameLayout(this);
+        panel.setBackground(HomeRows.glass(k));
+        panel.setClipToOutline(true);
+        panel.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+        TvUi.Row line = new TvUi.Row(this);
+        line.setClipChildren(false);
+        line.setClipToPadding(false);
+        line.setPadding(Math.round(30 * k), Math.round(30 * k), Math.round(30 * k), Math.round(30 * k));
+        appsLine = line;
+        TvUi.HScroll hs = new TvUi.HScroll(this, Math.round(240 * k));
+        hs.addView(line);
+        panel.addView(hs, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round((HomeRows.APP_H + 60) * k));
+        lp.rightMargin = Math.round(INSET * k);
+        lp.topMargin = Math.round(20 * k);
+        panel.setLayoutParams(lp);
+        int gen = generation;
+        io.execute(() -> {
+            List<String[]> apps = HomeRows.apps(this);
+            List<Bitmap> tiles = new ArrayList<>();
+            for (String[] app : apps) tiles.add(HomeApps.appTile(this, null, app[0], 0));
+            main.post(() -> {
+                if (gen != generation || isFinishing() || appsLine != line) return;
+                boolean focusFirst = getCurrentFocus() == null || !inside(getCurrentFocus(), page);
+                for (int i = 0; i < apps.size(); i++) {
+                    line.addView(HomeRows.appCard(this, k, apps.get(i)[0], apps.get(i)[1], tiles.get(i), this::openApp, this::startMoving));
+                }
+                if (focusFirst && (hero == null || heroList.isEmpty()) && line.getChildCount() > 0) line.getChildAt(0).requestFocus();
+            });
+        });
+        return panel;
+    }
+
+    /** All apps, Wi-Fi, the home screen's settings and the TV's, as pills under the shelf. */
+    private View shortcutsRow() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setClipChildren(false);
+        bar.setClipToPadding(false);
+        bar.setPadding(Math.round(6 * k), Math.round(34 * k), 0, Math.round(6 * k));
+        List<HomeApps.Item> items = new ArrayList<>();
+        try {
+            for (HomeApps.Item it : HomeApps.shortcuts(this)) if (it.kind != HomeApps.ALL_APPS) items.add(it);
+        } catch (RuntimeException ignored) {
+        }
+        items.addAll(0, HomeApps.drawerShortcuts());
+        for (HomeApps.Item it : items) {
+            View b = TvUi.iconButton(this, k, it.symbol, it.label, v -> {
+                if (it.kind == HomeApps.ALL_APPS) showPage(APPS);
+                else if (!HomeApps.open(this, it, v, 0, 0, v.getWidth(), v.getHeight()))
+                    Toast.makeText(this, Ui.tr("Não deu para abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = Math.round(18 * k);
+            bar.addView(b, lp);
+        }
+        TvUi.HScroll hs = new TvUi.HScroll(this, Math.round(200 * k));
+        hs.addView(bar);
+        return hs;
+    }
+
+    /** Every app on the TV, by name, as a grid of their TV art. */
+    private void buildAllApps() {
+        int gen = generation;
+        io.execute(() -> {
+            List<String[]> apps = HomeRows.allApps(this);
+            List<Bitmap> tiles = new ArrayList<>();
+            for (String[] app : apps) tiles.add(HomeApps.appTile(this, null, app[0], 0));
+            main.post(() -> {
+                if (gen != generation || isFinishing()) return;
+                status.setVisibility(View.GONE);
+                LinearLayout grid = new LinearLayout(this);
+                grid.setOrientation(LinearLayout.VERTICAL);
+                grid.setClipChildren(false);
+                LinearLayout line = null;
+                for (int i = 0; i < apps.size(); i++) {
+                    if (line == null || line.getChildCount() >= 5) {
+                        line = new LinearLayout(this);
+                        line.setOrientation(LinearLayout.HORIZONTAL);
+                        line.setClipChildren(false);
+                        line.setPadding(Math.round(24 * k), Math.round(26 * k), 0, Math.round(26 * k));
+                        grid.addView(line);
+                    }
+                    View card = HomeRows.appCard(this, k, apps.get(i)[0], apps.get(i)[1], tiles.get(i), this::openApp, null);
+                    LinearLayout cell = new LinearLayout(this);
+                    cell.setOrientation(LinearLayout.VERTICAL);
+                    cell.setClipChildren(false);
+                    cell.addView(card);
+                    TextView name = TvUi.text(this, k, 22, Ui.regular, TvUi.DIM);
+                    name.setText(apps.get(i)[1]);
+                    name.setSingleLine(true);
+                    name.setEllipsize(TextUtils.TruncateAt.END);
+                    name.setPadding(0, Math.round(16 * k), 0, 0);
+                    cell.addView(name, new LinearLayout.LayoutParams(Math.round(HomeRows.APP_W * k), ViewGroup.LayoutParams.WRAP_CONTENT));
+                    line.addView(cell);
+                }
+                rows.addView(grid);
+                if (grid.getChildCount() > 0) grid.requestFocus();
+            });
+        });
+    }
+
+    // MARK: - Moving an app on the shelf (hold OK, Left/Right, OK to drop)
+
+    private View moving;
+    private boolean skipUp;
+
+    private void startMoving(View card, String pkg) {
+        if (moving != null || card.getParent() != appsLine) return;
+        moving = card;
+        skipUp = true;   // the OK being held is still down: its release isn't the drop
+        card.animate().scaleX(1.14f).scaleY(1.14f).translationY(-14 * k).translationZ(40 * k).setDuration(160).start();
+        Toast.makeText(this, Ui.tr("← → para mover · OK para soltar", "← → to move · OK to drop"), Toast.LENGTH_SHORT).show();
+    }
+
+    private boolean moveKey(int code, boolean down) {
+        if (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            if (!down) return true;
+            ViewGroup line = (ViewGroup) moving.getParent();
+            int i = line.indexOfChild(moving), j = i + (code == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+            if (j < 0 || j >= line.getChildCount()) return true;
+            line.removeView(moving);
+            line.addView(moving, j);
+            moving.requestFocus();
+            moving.post(() -> {
+                if (moving == null) return;
+                android.graphics.Rect r = new android.graphics.Rect(0, 0, moving.getWidth(), moving.getHeight());
+                moving.requestRectangleOnScreen(r, false);
+                moving.setScaleX(1.14f);
+                moving.setScaleY(1.14f);
+                moving.setTranslationY(-14 * k);
+            });
+            if (audio != null) audio.playSoundEffect(code == KeyEvent.KEYCODE_DPAD_RIGHT
+                    ? android.media.AudioManager.FX_FOCUS_NAVIGATION_RIGHT : android.media.AudioManager.FX_FOCUS_NAVIGATION_LEFT);
+            return true;
+        }
+        boolean drop = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_BACK;
+        if (drop && !down) {
+            if (skipUp) skipUp = false;
+            else stopMoving(true);
+        }
+        return true;   // nothing else while an app is lifted
+    }
+
+    /** Puts the lifted app down; `save` keeps the new order (Settings > Shelf shows it too). */
+    private void stopMoving(boolean save) {
+        if (moving == null) return;
+        View card = moving;
+        moving = null;
+        card.animate().scaleX(card.hasFocus() ? 1.08f : 1f).scaleY(card.hasFocus() ? 1.08f : 1f).translationY(card.hasFocus() ? -4 * k : 0)
+                .translationZ(card.hasFocus() ? 30 * k : 0).setDuration(160).start();
+        if (!save || appsLine == null) return;
+        List<String> order = new ArrayList<>();
+        for (int i = 0; i < appsLine.getChildCount(); i++) {
+            Object tag = appsLine.getChildAt(i).getTag();
+            if (tag instanceof String) order.add((String) tag);
+        }
+        Prefs.setShelf(order);
+        prefsVersion = Prefs.version;   // our own change: no need to draw the home screen again
+        if (audio != null) audio.playSoundEffect(android.media.AudioManager.FX_KEY_CLICK);
     }
 
     private static List<Tmdb.Title> top(List<Tmdb.Title> list) {

@@ -99,7 +99,7 @@ final class HomeApps {
     /** Live TV apps of some brands (the antenna's channels open through the standard Android request first). */
     static final String[] LIVE_TV_APPS = {"com.tcl.tv", "com.google.android.tv", "com.mediatek.wwtv.tvcenter", "com.sony.dtv.tvx"};
     /** Kept out of "All Apps" (only hidden, still installed). Add the ones your TV shows that you never use. */
-    private static final Set<String> HIDDEN = new HashSet<>(java.util.Arrays.asList(
+    static final Set<String> HIDDEN = new HashSet<>(java.util.Arrays.asList(
             "com.google.android.play.games",        // Google Play Games
             "com.tcl.t_solo",                       // TCL: T-Solo
             "com.tcl.waterfall.overseas",           // TCL Channel
@@ -859,7 +859,7 @@ final class HomeApps {
 
     // MARK: - Cards
 
-    private static synchronized Bitmap appTile(Context c, String key, String pkg, int brand) {
+    static synchronized Bitmap appTile(Context c, String key, String pkg, int brand) {
         String cacheKey = key != null ? key : pkg;
         if (TILES.containsKey(cacheKey)) return TILES.get(cacheKey);
         Bitmap logo = key == null ? null : ownLogo(c, key);

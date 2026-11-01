@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Granted from ADB (pm grant): lets the screensaver picker switch between this screensaver and Google's. -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <!-- The Explore-style home: other apps' Continue Watching entries and preview channels ("TV listings"). -->
+    <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
 
     <!-- Android 11+: without this list the app can't "see" the other apps (getLeanbackLaunchIntentForPackage
          returns null). The shelf and streaming apps, the live TV apps and, through the <intent>, every TV app
@@ -32,6 +34,10 @@
         <package android:name="com.sony.dtv.tvx" />
         <!-- Google TV's screensaver: the "Google Photos" choice is offered only when it is there and on. -->
         <package android:name="com.google.android.apps.tv.dreamx" />
+        <!-- The TV's listings (Continue Watching, channels) and MovieShelf, for the Explore-style home. -->
+        <package android:name="com.android.providers.tv" />
+        <package android:name="com.movieshelf.app" />
+        <provider android:authorities="android.media.tv" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
@@ -79,6 +85,28 @@
         <!-- The home screen, in its own process (:home). launcher-ui/build-and-install.sh makes it the TV's home screen. -->
         <activity
             android:name=".HomeActivity"
+            android:process=":home"
+            android:exported="true"
+            android:label="CleanYourTV UI"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true"
+            android:resumeWhilePausing="true"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/CleanYourTV.Home">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- The Explore-style home screen (a customisation): Home with set-home-activity .ExploreHomeActivity. -->
+        <activity
+            android:name=".ExploreHomeActivity"
             android:process=":home"
             android:exported="true"
             android:label="CleanYourTV UI"
