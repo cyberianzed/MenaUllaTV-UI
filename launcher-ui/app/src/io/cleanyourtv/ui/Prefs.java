@@ -231,6 +231,17 @@ final class Prefs {
 
     static void setAppChannels(org.json.JSONObject v) { put("app_channels", v.toString()); }
 
+    /** Continue watching titles' last seen position and when it last moved: {"wn:12": {"p": ms, "t": utc}}. */
+    static org.json.JSONObject watchNextSeen() {
+        try {
+            return new org.json.JSONObject(sp().getString("watch_next_seen", "{}"));
+        } catch (org.json.JSONException e) {
+            return new org.json.JSONObject();
+        }
+    }
+
+    static void setWatchNextSeen(org.json.JSONObject v) { sp().edit().putString("watch_next_seen", v.toString()).apply(); }
+
     /** Home Settings › Navigation sound: one of Tones.STYLES ("soft" unless changed). */
     static String navSound() {
         String v = sp().getString("nav_sound", "soft");

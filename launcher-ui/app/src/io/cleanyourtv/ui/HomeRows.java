@@ -113,6 +113,7 @@ final class HomeRows {
         String key, title, sub, image, intent, pkg;
         boolean portrait;
         long position, duration, when;
+        long rank;   // when it was last watched, as best known: the app's own time, or when its position last moved
     }
 
     static boolean canRead(Context c) {
@@ -143,7 +144,8 @@ final class HomeRows {
         }
         // All of that app's titles wait for its server, even those whose own picture is the app's placeholder.
         if (!serverDown.isEmpty()) out.removeIf(card -> serverDown.contains(card.pkg));
-        Collections.sort(out, (a, b) -> Long.compare(b.when, a.when));
+        rank(out);
+        Collections.sort(out, (a, b) -> Long.compare(b.rank, a.rank));
         List<Card> top = out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
         // The row never waits for pictures: those already found are used, the rest are looked up apart and the row
         // is refreshed once they arrive (see onArt).
@@ -187,6 +189,34 @@ final class HomeRows {
         } catch (Exception e) {
             AppLog.w("badge for " + pkg + ": " + e.getMessage());
         }
+    }
+
+    private static boolean loggedTimes;
+
+    /**
+     * Latest watched first, even for apps that don't keep their "last watched" time up to date (SonyLIV): the
+     * launcher remembers each title's position, and a title whose position moved, or that's new to the row, counts as
+     * watched now. Only the titles in the row are remembered.
+     */
+    private static void rank(List<Card> cards) {
+        org.json.JSONObject before = Prefs.watchNextSeen(), after = new org.json.JSONObject();
+        long now = System.currentTimeMillis();
+        boolean known = before.length() > 0;   // the first look at the list marks nothing: it has no "before"
+        for (Card card : cards) {
+            org.json.JSONObject was = before.optJSONObject(card.key);
+            long mark = was == null ? (known ? now : 0) : was.optLong("t", 0);
+            if (was != null && was.optLong("p", -1) != card.position) mark = now;
+            card.rank = Math.max(card.when, mark);
+            try {
+                after.put(card.key, new org.json.JSONObject().put("p", card.position).put("t", mark));
+            } catch (org.json.JSONException ignored) {
+            }
+            if (!loggedTimes && card.pkg.contains("sony")) {
+                AppLog.w("watch next time: " + card.pkg + " app " + card.when + ", position " + card.position);
+            }
+        }
+        loggedTimes = true;
+        Prefs.setWatchNextSeen(after);
     }
 
     private static final java.util.Map<String, Object[]> SERVERS = new java.util.HashMap<>();   // host:port -> {up, when}
