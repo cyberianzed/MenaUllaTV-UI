@@ -358,6 +358,21 @@ final class TvUi {
      * A horizontal line of cards that remembers its card: coming from above or below lands on the card focused last
      * (the first one at the start), not on whichever card happens to be nearest.
      */
+    /**
+     * A row ends at its ends, as on Google TV: Right on the last item (or Left on the first) goes nowhere, instead of
+     * jumping to whatever is nearest in the row above or below. Null tells the caller nothing is there (the left edge
+     * of a page then opens its menu, as before).
+     */
+    static View rowEnd(ViewGroup row, View focused, int direction, View found) {
+        if (direction != View.FOCUS_LEFT && direction != View.FOCUS_RIGHT) return found;
+        View child = focused;
+        while (child != null && child.getParent() != row) child = child.getParent() instanceof View ? (View) child.getParent() : null;
+        if (child == null || found == null) return found;
+        View next = found;   // inside this row: fine; elsewhere: the end of the row
+        while (next != null && next.getParent() != row) next = next.getParent() instanceof View ? (View) next.getParent() : null;
+        return next != null ? found : null;
+    }
+
     static class Row extends LinearLayout {
         private View last;
 
@@ -369,6 +384,10 @@ final class TvUi {
         @Override public void requestChildFocus(View child, View focused) {
             super.requestChildFocus(child, focused);
             last = child;
+        }
+
+        @Override public View focusSearch(View focused, int direction) {
+            return rowEnd(this, focused, direction, super.focusSearch(focused, direction));
         }
 
         /** Entered from above or below, the row starts at its first item again (Home pressed on Home). */

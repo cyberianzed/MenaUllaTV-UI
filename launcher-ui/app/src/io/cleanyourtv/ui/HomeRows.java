@@ -351,6 +351,10 @@ final class HomeRows {
             last = v;
         }
 
+        @Override public View focusSearch(View focused, int direction) {
+            return TvUi.rowEnd(this, focused, direction, super.focusSearch(focused, direction));
+        }
+
         @Override public void requestChildFocus(View child, View focused) {
             super.requestChildFocus(child, focused);
             last = child;
