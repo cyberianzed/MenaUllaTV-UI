@@ -234,6 +234,7 @@ final class HomeRows {
             }
             Card card = new Card();
             card.key = "wn:np:" + pkg + ":" + Integer.toHexString(title.hashCode());
+            prefetchLink(c0, pkg, title);
             card.when = at;
             if (hidden.contains(card.key + "@" + card.when)) continue;
             card.pkg = pkg;
@@ -249,23 +250,9 @@ final class HomeRows {
         }
     }
 
-    /**
-     * The picture for a played title: the app's own when it's wide; a tall one (SonyLIV's posters) gives way to TMDB's
-     * wide backdrop for that exact title (looked up apart; the row is redrawn when it comes), and is shown framed only
-     * until then or when TMDB has none. "" when there's nothing: TMDB is then looked up like any card without one.
-     */
+    /** The picture for a played title: the app's own, as the app gave it. */
     private static String playedArt(Context c0, String own, String title) {
-        String shown = NowPlaying.widen(c0, own);
-        boolean tall = shown != null && shown.startsWith("file:") && shown.endsWith("-w.jpg");
-        if (!tall) return shown;
-        String tmdb = knownArt(title);
-        if (tmdb == null) {   // not looked up yet: now, apart
-            java.util.List<String> one = new ArrayList<>();
-            one.add(title);
-            lookUpArt(one);
-            return shown;
-        }
-        return tmdb.isEmpty() ? shown : tmdb;
+        return own == null ? "" : own;   // the app's own poster, as it is (the card crops it); none: TMDB's, apart
     }
 
     private static String norm(String s) {
@@ -453,15 +440,38 @@ final class HomeRows {
      * A played title the app never listed (SonyLIV's DC) has no link of its own: it's found on TMDB by its exact name,
      * then the app's own link to it (the same lookup as a title page's "watch on" buttons). Else the app opens.
      */
+    /** Played titles' links to themselves, found ahead ("" for none): pkg|title -> link. */
+    private static final java.util.Map<String, String> LINKS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static void prefetchLink(Context c, String pkg, String title) {
+        String key = pkg + "|" + title;
+        if (LINKS.containsKey(key)) return;
+        LINKS.put(key, "");   // on its way
+        ART_POOL.execute(() -> {
+            String url = findLink(c, pkg, title);
+            if (url != null) LINKS.put(key, url);
+            else LINKS.remove(key);   // offline: try again later
+        });
+    }
+
+    /** The app's link to this title (TMDB by exact name, then the title page's lookup); "" for none, null offline. */
+    private static String findLink(Context c, String pkg, String title) {
+        try {
+            Object[] found = tmdbTitle(title);
+            if (found == null) return "";
+            String url = DeepLinks.find(c, (String) found[0], (Integer) found[1], title).get(pkg);
+            return url == null ? "" : url;
+        } catch (Exception e) {
+            AppLog.w("link for " + title + ": " + e.getMessage());
+            return null;
+        }
+    }
+
     private static void openPlayed(Activity a, Card card) {
+        String known = LINKS.get(card.pkg + "|" + card.title);
+        if (known != null && !known.isEmpty() && DeepLinks.open(a, card.pkg, known, true)) return;   // found ahead: at once
         new Thread(() -> {
-            String url = null;
-            try {
-                Object[] found = tmdbTitle(card.title);
-                if (found != null) url = DeepLinks.find(a, (String) found[0], (Integer) found[1], card.title).get(card.pkg);
-            } catch (Exception e) {
-                AppLog.w("open played " + card.title + ": " + e.getMessage());
-            }
+            String url = findLink(a, card.pkg, card.title);
             String link = url;
             MAIN.post(() -> {
                 if (link != null && DeepLinks.open(a, card.pkg, link, true)) return;

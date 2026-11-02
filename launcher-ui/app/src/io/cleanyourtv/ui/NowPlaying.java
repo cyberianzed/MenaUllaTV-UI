@@ -125,30 +125,10 @@ public final class NowPlaying extends NotificationListenerService {
         return android.net.Uri.fromFile(f).toString();
     }
 
-    /**
-     * The card is wide (16:9): a wide picture is just scaled down; a tall poster (SonyLIV's) would be cut to a strip
-     * across the middle, so it's set whole in the centre over a darkened, blurred copy of itself, Apple TV-like.
-     */
-    static android.graphics.Bitmap wide(android.graphics.Bitmap b) {
-        int w = 480, h = 270;
-        if (b.getWidth() >= b.getHeight() * 1.3f) {
-            float scale = Math.min(1f, (float) w / b.getWidth());
-            return scale < 1f ? android.graphics.Bitmap.createScaledBitmap(b, w, Math.max(1, Math.round(b.getHeight() * scale)), true) : b;
-        }
-        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas c = new android.graphics.Canvas(out);
-        android.graphics.Paint smooth = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
-        // the blur: down to a few pixels and back up, twice, which is soft and nearly free
-        android.graphics.Bitmap tiny = android.graphics.Bitmap.createScaledBitmap(b, 12, Math.max(1, Math.round(12f * b.getHeight() / b.getWidth())), true);
-        android.graphics.Bitmap soft = android.graphics.Bitmap.createScaledBitmap(tiny, 48, Math.max(1, Math.round(48f * b.getHeight() / b.getWidth())), true);
-        float cover = Math.max((float) w / soft.getWidth(), (float) h / soft.getHeight());
-        float sw = soft.getWidth() * cover, sh = soft.getHeight() * cover;
-        c.drawBitmap(soft, null, new android.graphics.RectF((w - sw) / 2, (h - sh) / 2, (w + sw) / 2, (h + sh) / 2), smooth);
-        c.drawColor(0x8C000000);   // darker, so the poster stands out
-        float fit = (float) h / b.getHeight();
-        float pw = b.getWidth() * fit;
-        c.drawBitmap(b, null, new android.graphics.RectF((w - pw) / 2, 0, (w + pw) / 2, h), smooth);
-        return out;
+    /** The app's picture, kept small. */
+    static android.graphics.Bitmap wide(android.graphics.Bitmap b) {   // as it is, only smaller: the card crops it
+        float scale = Math.min(1f, 480f / b.getWidth());
+        return scale < 1f ? android.graphics.Bitmap.createScaledBitmap(b, 480, Math.max(1, Math.round(b.getHeight() * scale)), true) : b;
     }
 
     /**
