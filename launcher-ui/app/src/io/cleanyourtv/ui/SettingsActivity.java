@@ -501,7 +501,7 @@ public class SettingsActivity extends Activity {
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru", "fr", "tr", "he"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         private static final String[] CLOCKS = {"auto", "24h", "12h"}, STYLES = {"photos", "aurora", "google"};
         /** Home Settings: language, temperature, theme, clock, weather, city, quotes, then one row per coin. */
-        private static final int CLOCK_ROW = 3, WEATHER_ROW = 4, CITY_ROW = 5, QUOTES_ROW = 6, COIN_ROWS = 7;
+        private static final int CLOCK_ROW = 3, SOUND_ROW = 4, WEATHER_ROW = 5, CITY_ROW = 6, QUOTES_ROW = 7, COIN_ROWS = 8;
 
         private static String styleName(String style) {
             return style.equals("aurora") ? Ui.tr("Relógio e aurora", "Clock and aurora")
@@ -518,6 +518,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Temperatura", "Temperature"));
             l.add(Ui.tr("Tema", "Theme"));
             l.add(Ui.tr("Formato do relógio", "Clock format"));
+            l.add(Ui.tr("Som da navegação", "Navigation sound"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
             l.add(Ui.tr("Widget de cotações", "Quotes widget"));
@@ -542,6 +543,10 @@ public class SettingsActivity extends Activity {
             String clock = Prefs.clockFormat();
             v[CLOCK_ROW] = clock.equals("24h") ? Ui.tr("24 horas", "24-hour") : clock.equals("12h") ? Ui.tr("12 horas", "12-hour")
                     : Ui.tr("Automático", "Automatic");
+            String sound = Prefs.navSound();
+            v[SOUND_ROW] = sound.equals("tick") ? Ui.tr("Tique", "Tick") : sound.equals("pop") ? "Pop"
+                    : sound.equals("system") ? Ui.tr("Som da TV", "TV system sound") : sound.equals("off") ? Ui.tr("Desligado", "Off")
+                    : Ui.tr("Suave", "Soft");
             v[WEATHER_ROW] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[QUOTES_ROW] = onOff(Prefs.quotes());
@@ -624,6 +629,13 @@ public class SettingsActivity extends Activity {
                     int at = java.util.Arrays.asList(CLOCKS).indexOf(Prefs.clockFormat());
                     Prefs.setClockFormat(CLOCKS[(at + dir + CLOCKS.length) % CLOCKS.length]);
                     break;
+                }
+                case SOUND_ROW: {   // each choice plays as it's picked
+                    int at = java.util.Arrays.asList(Tones.STYLES).indexOf(Prefs.navSound());
+                    Prefs.setNavSound(Tones.STYLES[(at + dir + Tones.STYLES.length) % Tones.STYLES.length]);
+                    Tones.play(getContext(), (android.media.AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE),
+                            android.media.AudioManager.FX_FOCUS_NAVIGATION_RIGHT);
+                    return;
                 }
                 case WEATHER_ROW: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;

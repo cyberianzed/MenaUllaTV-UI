@@ -231,6 +231,14 @@ final class Prefs {
 
     static void setAppChannels(org.json.JSONObject v) { put("app_channels", v.toString()); }
 
+    /** Home Settings › Navigation sound: one of Tones.STYLES ("soft" unless changed). */
+    static String navSound() {
+        String v = sp().getString("nav_sound", "soft");
+        return java.util.Arrays.asList(Tones.STYLES).contains(v) ? v : "soft";
+    }
+
+    static void setNavSound(String v) { put("nav_sound", v); }
+
     /** config.json "youtube_channels": the YouTube row's channels instead of the built-in picks (see YouTubeRow). */
     static org.json.JSONArray youtubeChannels() {
         try {

@@ -270,6 +270,7 @@ public class ExploreActivity extends Activity {
         setContentView(root);
         if (isHome()) getWindow().setBackgroundDrawable(null);
         audio = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        background(() -> Tones.init(getApplicationContext()));   // the tones are ready before the first key
         root.getViewTreeObserver().addOnGlobalFocusChangeListener((was, now) -> {
             followFocus(now);
             tick(was, now);
@@ -361,7 +362,7 @@ public class ExploreActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_DOWN: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_DOWN; break;
             default: return;
         }
-        audio.playSoundEffect(fx);
+        Tones.play(this, audio, fx);   // the launcher's own tone (or the TV's, or none): Home Settings › Navigation sound
     }
 
     @Override protected void onResume() {
@@ -383,11 +384,13 @@ public class ExploreActivity extends Activity {
             TvUi.refreshSeen(page);
         }
         resumedOnce = true;
+        watchContinueWatching(true);
     }
 
     @Override protected void onPause() {
         main.removeCallbacks(heroTick);
         main.removeCallbacks(clockTick);
+        watchContinueWatching(false);
         super.onPause();
     }
 
@@ -603,6 +606,35 @@ public class ExploreActivity extends Activity {
     private final Runnable artArrived = () -> main.post(() -> {
         if (!isFinishing() && !io.isShutdown() && HOME.equals(current) && sections != null) load(generation, sections, true);
     });
+
+    /**
+     * Apps often write their Continue watching entry as they close, a moment after Home came back: while Home is on
+     * screen, a change to the TV's list redraws the row (a second after the last change, so a burst is one reload).
+     */
+    private final android.database.ContentObserver watchNextChanged = new android.database.ContentObserver(main) {
+        @Override public void onChange(boolean self) {
+            main.removeCallbacks(reloadWatchNext);
+            main.postDelayed(reloadWatchNext, 1000);
+        }
+    };
+    private final Runnable reloadWatchNext = () -> {
+        if (!isFinishing() && !io.isShutdown() && HOME.equals(current) && sections != null) load(generation, sections, true);
+    };
+    private boolean watchingWatchNext;
+
+    private void watchContinueWatching(boolean on) {
+        if (!isHome() || on == watchingWatchNext || !HomeRows.canRead(this)) return;
+        try {
+            if (on) getContentResolver().registerContentObserver(android.media.tv.TvContract.WatchNextPrograms.CONTENT_URI, true, watchNextChanged);
+            else {
+                getContentResolver().unregisterContentObserver(watchNextChanged);
+                main.removeCallbacks(reloadWatchNext);
+            }
+            watchingWatchNext = on;
+        } catch (RuntimeException e) {
+            AppLog.w("continue watching updates: " + e.getMessage());
+        }
+    }
 
     private boolean cornersShown = true;
 
