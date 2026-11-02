@@ -231,6 +231,38 @@ final class Prefs {
 
     static void setAppChannels(org.json.JSONObject v) { put("app_channels", v.toString()); }
 
+    /**
+     * When Home last opened each app, and each Continue watching title ("wn:12"), for the row's order: some apps
+     * (SonyLIV, Netflix) never update their entry's "last watched" time. {key: utc}, the last 60.
+     */
+    static org.json.JSONObject launches() {
+        try {
+            return new org.json.JSONObject(sp().getString("launches", "{}"));
+        } catch (org.json.JSONException e) {
+            return new org.json.JSONObject();
+        }
+    }
+
+    static void noteLaunch(String key) {
+        if (key == null || key.isEmpty()) return;
+        org.json.JSONObject all = launches();
+        try {
+            all.remove(key);
+            all.put(key, System.currentTimeMillis());
+            while (all.length() > 60) {   // drop the oldest
+                String oldest = null;
+                long at = Long.MAX_VALUE;
+                for (java.util.Iterator<String> it = all.keys(); it.hasNext(); ) {
+                    String k = it.next();
+                    if (all.optLong(k) < at) { at = all.optLong(k); oldest = k; }
+                }
+                all.remove(oldest);
+            }
+        } catch (org.json.JSONException ignored) {
+        }
+        sp().edit().putString("launches", all.toString()).apply();
+    }
+
     /** Continue watching titles' last seen position and when it last moved: {"wn:12": {"p": ms, "t": utc}}. */
     static org.json.JSONObject watchNextSeen() {
         try {

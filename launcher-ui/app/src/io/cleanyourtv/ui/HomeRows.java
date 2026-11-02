@@ -199,14 +199,21 @@ final class HomeRows {
      * watched now. Only the titles in the row are remembered.
      */
     private static void rank(List<Card> cards) {
-        org.json.JSONObject before = Prefs.watchNextSeen(), after = new org.json.JSONObject();
+        org.json.JSONObject before = Prefs.watchNextSeen(), after = new org.json.JSONObject(), launched = Prefs.launches();
         long now = System.currentTimeMillis();
         boolean known = before.length() > 0;   // the first look at the list marks nothing: it has no "before"
+        // Each app's latest title (by the app's own time) also takes the time Home last opened that app.
+        java.util.Map<String, Card> latest = new java.util.HashMap<>();
+        for (Card card : cards) {
+            Card top = latest.get(card.pkg);
+            if (top == null || card.when > top.when) latest.put(card.pkg, card);
+        }
         for (Card card : cards) {
             org.json.JSONObject was = before.optJSONObject(card.key);
             long mark = was == null ? (known ? now : 0) : was.optLong("t", 0);
             if (was != null && was.optLong("p", -1) != card.position) mark = now;
-            card.rank = Math.max(card.when, mark);
+            card.rank = Math.max(card.when, Math.max(mark, launched.optLong(card.key, 0)));
+            if (latest.get(card.pkg) == card) card.rank = Math.max(card.rank, launched.optLong(card.pkg, 0));
             try {
                 after.put(card.key, new org.json.JSONObject().put("p", card.position).put("t", mark));
             } catch (org.json.JSONException ignored) {
@@ -437,6 +444,8 @@ final class HomeRows {
 
     /** Opens what the card points at in its app (the app itself when the link is gone). */
     static void open(Activity a, Card card) {
+        Prefs.noteLaunch(card.key);   // this title, just now: first in Continue watching
+        Prefs.noteLaunch(card.pkg);
         Intent intent;
         try {
             intent = card.intent.startsWith("intent:") || card.intent.contains("#Intent;")

@@ -2705,6 +2705,7 @@ public class ExploreActivity extends Activity {
     }
 
     private void launch(String pkg) {
+        Prefs.noteLaunch(pkg);   // Continue watching: this app's latest title moves up
         Intent app = HomeApps.launchIntent(getPackageManager(), pkg);
         if (app == null) return;
         try {
@@ -2715,6 +2716,7 @@ public class ExploreActivity extends Activity {
     }
 
     private void openApp(View card, String pkg) {
+        Prefs.noteLaunch(pkg);
         HomeApps.Item it = HomeApps.app(pkg, pkg);
         if (!HomeApps.open(this, it, card, 0, 0, card.getWidth(), card.getHeight())) launch(pkg);
     }

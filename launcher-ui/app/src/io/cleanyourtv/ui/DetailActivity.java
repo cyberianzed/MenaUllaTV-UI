@@ -499,6 +499,7 @@ public class DetailActivity extends Activity {
 
     /** Opens the title in the app (a Wikidata deep link), or else the app's home. */
     private void watch(String pkg) {
+        Prefs.noteLaunch(pkg);   // Continue watching: this app's latest title moves up
         if (title != null) Tmdb.setSeen(this, title, true);
         String name = title == null ? "" : title.name;
         new Thread(() -> {
