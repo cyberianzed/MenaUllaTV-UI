@@ -449,6 +449,49 @@ final class HomeRows {
         return art;
     }
 
+    /**
+     * A played title the app never listed (SonyLIV's DC) has no link of its own: it's found on TMDB by its exact name,
+     * then the app's own link to it (the same lookup as a title page's "watch on" buttons). Else the app opens.
+     */
+    private static void openPlayed(Activity a, Card card) {
+        new Thread(() -> {
+            String url = null;
+            try {
+                Object[] found = tmdbTitle(card.title);
+                if (found != null) url = DeepLinks.find(a, (String) found[0], (Integer) found[1], card.title).get(card.pkg);
+            } catch (Exception e) {
+                AppLog.w("open played " + card.title + ": " + e.getMessage());
+            }
+            String link = url;
+            MAIN.post(() -> {
+                if (link != null && DeepLinks.open(a, card.pkg, link)) return;
+                Intent app = HomeApps.launchIntent(a.getPackageManager(), card.pkg);
+                if (app != null) {
+                    try {
+                        a.startActivity(app.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+            });
+        }).start();
+    }
+
+    /** {kind, id} of the TMDB title named exactly this, or null. */
+    private static Object[] tmdbTitle(String title) throws Exception {
+        String wanted = norm(cleanTitle(title));
+        if (wanted.isEmpty() || !Tmdb.hasKey()) return null;
+        org.json.JSONArray results = Tmdb.get("/search/multi?query=" + java.net.URLEncoder.encode(cleanTitle(title), "UTF-8")
+                + "&include_adult=false").optJSONArray("results");
+        for (int i = 0; results != null && i < results.length(); i++) {
+            org.json.JSONObject r = results.optJSONObject(i);
+            String kind = r == null ? "" : r.optString("media_type");
+            if (!kind.equals("movie") && !kind.equals("tv")) continue;
+            String name = norm(r.optString("title", r.optString("name", ""))), original = norm(r.optString("original_title", r.optString("original_name", "")));
+            if (wanted.equals(name) || wanted.equals(original)) return new Object[] {kind, r.optInt("id")};
+        }
+        return null;
+    }
+
     /** A title's backdrop with no text on it (TMDB keeps those apart: no language), else "". */
     private static String textless(String kind, int id) {
         if (id <= 0 || !(kind.equals("movie") || kind.equals("tv"))) return "";
@@ -577,6 +620,10 @@ final class HomeRows {
     static void open(Activity a, Card card) {
         Prefs.noteLaunch(card.key);   // this title, just now: first in Continue watching
         Prefs.noteLaunch(card.pkg);
+        if (card.key != null && card.key.startsWith("wn:np:")) {   // a title known only from what was played
+            openPlayed(a, card);
+            return;
+        }
         Intent intent;
         try {
             intent = card.intent.startsWith("intent:") || card.intent.contains("#Intent;")
