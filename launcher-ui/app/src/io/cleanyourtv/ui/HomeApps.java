@@ -865,8 +865,17 @@ final class HomeApps {
     // MARK: - Cards
 
     static synchronized Bitmap appTile(Context c, String key, String pkg, int brand) {
-        String cacheKey = key != null ? key : pkg;
+        // A tile styled in config.json "app_tiles" (or on the TV) wins; its look is part of the key, so a change shows.
+        String styled = key == null && CustomTiles.get(pkg) != null ? "custom:" + pkg + "|" + Prefs.tile(pkg) : null;
+        String cacheKey = styled != null ? styled : key != null ? key : pkg;
         if (TILES.containsKey(cacheKey)) return TILES.get(cacheKey);
+        Bitmap custom = styled != null ? CustomTiles.logo(c, pkg, true) : null;
+        if (custom != null) {
+            Bitmap tile = styledTile(custom, CustomTiles.style(pkg));
+            tile.setHasMipMap(true);
+            TILES.put(cacheKey, tile);
+            return tile;
+        }
         Bitmap logo = key == null ? null : ownLogo(c, key);
         Bitmap tile = logo != null ? logoTile(logo, brand) : bannerTile(c, pkg);
         if (tile == null) tile = iconTile(c, pkg);
@@ -960,6 +969,22 @@ final class HomeApps {
         canvas.drawRect(0, 0, TILE_W, TILE_H, glow);
         boolean wide = logo.getWidth() > logo.getHeight() * 1.35f;
         float maxW = TILE_W * (wide ? 0.62f : 0.4f), maxH = TILE_H * (wide ? 0.42f : 0.56f);
+        float scale = Math.min(maxW / logo.getWidth(), maxH / logo.getHeight());
+        float w = logo.getWidth() * scale, h = logo.getHeight() * scale;
+        canvas.drawBitmap(logo, null, new RectF((TILE_W - w) / 2, (TILE_H - h) / 2, (TILE_W + w) / 2, (TILE_H + h) / 2),
+                new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG));
+        return b;
+    }
+
+    /** A custom tile: its colour (lighter at the top) and the logo centred, a wordmark wider than a mark. */
+    private static Bitmap styledTile(Bitmap logo, int[] colors) {
+        Bitmap b = Bitmap.createBitmap(TILE_W, TILE_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(b);
+        Paint bg = new Paint();
+        bg.setShader(new LinearGradient(0, 0, 0, TILE_H, colors[0], colors[1], Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, TILE_W, TILE_H, bg);
+        boolean wide = logo.getWidth() > logo.getHeight() * 1.35f;
+        float maxW = TILE_W * (wide ? 0.72f : 0.4f), maxH = TILE_H * (wide ? 0.46f : 0.56f);
         float scale = Math.min(maxW / logo.getWidth(), maxH / logo.getHeight());
         float w = logo.getWidth() * scale, h = logo.getHeight() * scale;
         canvas.drawBitmap(logo, null, new RectF((TILE_W - w) / 2, (TILE_H - h) / 2, (TILE_W + w) / 2, (TILE_H + h) / 2),
