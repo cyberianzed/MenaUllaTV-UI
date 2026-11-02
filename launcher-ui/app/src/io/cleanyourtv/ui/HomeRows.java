@@ -124,11 +124,13 @@ final class HomeRows {
         List<Card> out = new ArrayList<>();
         if (!canRead(c)) return out;
         Set<String> apps = launchablePackages(c);
+        Set<String> serverDown = new HashSet<>();   // apps whose home media server (Emby, Jellyfin, Plex) is off
         try (Cursor q = c.getContentResolver().query(TvContract.WatchNextPrograms.CONTENT_URI, null, null, null, null)) {
             while (q != null && q.moveToNext()) {
                 if (num(q, "browsable", 1) == 0) continue;
                 Card card = card(q, "wn:");
                 if (card == null || !apps.contains(card.pkg)) continue;
+                if (!serverUp(card)) serverDown.add(card.pkg);
                 card.when = num(q, "last_engagement_time_utc_millis", 0);
                 card.position = num(q, "last_playback_position_millis", 0);
                 card.duration = num(q, "duration_millis", 0);
@@ -137,6 +139,8 @@ final class HomeRows {
         } catch (RuntimeException e) {
             AppLog.w("watch next: " + e.getMessage());
         }
+        // All of that app's titles wait for its server, even those whose own picture is the app's placeholder.
+        if (!serverDown.isEmpty()) out.removeIf(card -> serverDown.contains(card.pkg));
         Collections.sort(out, (a, b) -> Long.compare(b.when, a.when));
         List<Card> top = out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
         // The row never waits for pictures: those already found are used, the rest are looked up apart and the row
@@ -150,11 +154,59 @@ final class HomeRows {
         }
         if (!missing.isEmpty()) lookUpArt(missing);
         AppLog.w("watch next: " + top.size() + " titles, " + missing.size() + " pictures to look up");
+        if (!loggedLinks) {
+            loggedLinks = true;
+            for (Card card : top) {
+                if (!card.pkg.contains("emby")) continue;
+                Uri img = card.image == null || card.image.isEmpty() ? null : Uri.parse(card.image);
+                AppLog.w("watch next link: " + card.pkg + " picture " + (img == null ? "none" : img.getScheme() + "://" + img.getHost()));
+            }
+        }
         return top;
+    }
+
+    private static final java.util.Map<String, Object[]> SERVERS = new java.util.HashMap<>();   // host:port -> {up, when}
+
+    /**
+     * False when the card's picture (or link) points at a media server on the home network that doesn't answer:
+     * Emby, Jellyfin or Plex switched off. Their titles would only show without pictures and fail to open. A quick
+     * connection (0.4 s), remembered for a minute. Anything else, and anything on the internet, is kept.
+     */
+    static boolean serverUp(Card card) {
+        Uri u = null;
+        for (String link : new String[] {card.image, card.intent}) {
+            if (link == null || !(link.startsWith("http://") || link.startsWith("https://"))) continue;
+            u = Uri.parse(link);
+            break;
+        }
+        if (u == null || u.getHost() == null || !local(u.getHost())) return true;
+        int port = u.getPort() > 0 ? u.getPort() : "https".equals(u.getScheme()) ? 443 : 80;
+        String key = u.getHost() + ":" + port;
+        long now = System.currentTimeMillis();
+        synchronized (SERVERS) {
+            Object[] seen = SERVERS.get(key);
+            if (seen != null && now - (Long) seen[1] < 60_000L) return (Boolean) seen[0];
+        }
+        boolean up;
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress(u.getHost(), port), 400);
+            up = true;
+        } catch (Exception e) {
+            up = false;
+        }
+        synchronized (SERVERS) { SERVERS.put(key, new Object[] {up, now}); }
+        if (!up) AppLog.w("continue watching: " + card.pkg + "'s server " + key + " doesn't answer, its titles are hidden");
+        return up;
+    }
+
+    private static boolean local(String host) {
+        return host.startsWith("192.168.") || host.startsWith("10.") || host.endsWith(".local") || host.equals("localhost")
+                || host.matches("172\\.(1[6-9]|2\\d|3[01])\\..*");
     }
 
     private static final java.util.Map<String, String> ART = new java.util.HashMap<>();
     private static final java.util.Set<String> LOOKING = new java.util.HashSet<>();
+    private static boolean loggedLinks;
     /** Lookups that failed (offline, a bad key), and when: not tried again for 10 minutes. */
     private static final java.util.Map<String, Long> FAILED = new java.util.HashMap<>();
     private static final ExecutorService ART_POOL = Executors.newSingleThreadExecutor();

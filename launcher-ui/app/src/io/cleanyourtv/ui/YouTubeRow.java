@@ -57,6 +57,7 @@ final class YouTubeRow {
     /** Next time, fresh videos (the TV was turned back on). */
     static synchronized void forget() {
         cached = null;
+        emptyAt = 0;
     }
 
     /** config.json's channels when it has some, else the picks above. */
@@ -74,9 +75,26 @@ final class YouTubeRow {
         return out.isEmpty() ? CHANNELS : out.toArray(new String[0][]);
     }
 
-    static synchronized List<HomeRows.Card> videos(Context c) {
+    private static boolean fetching;
+    private static long emptyAt;   // when a fetch last came back with nothing (offline): not tried again for 5 minutes
+
+    static List<HomeRows.Card> videos(Context c) {
         long now = System.currentTimeMillis();
-        if (cached != null && now - cachedAt < KEEP) return cached;
+        synchronized (YouTubeRow.class) {
+            if (cached != null && now - cachedAt < KEEP) return cached;
+            // Another fetch is on its way, or the last one found nothing a moment ago: no second wave of 18 feeds
+            // holding Home's loading threads; what there is (possibly nothing) for now.
+            if (fetching || now - emptyAt < 5 * 60_000L) return cached != null ? cached : new ArrayList<>();
+            fetching = true;
+        }
+        try {
+            return fetch(c, now);
+        } finally {
+            synchronized (YouTubeRow.class) { fetching = false; }
+        }
+    }
+
+    private static List<HomeRows.Card> fetch(Context c, long now) {
         boolean tizen = installed(c, TIZENTUBE);
         String[][] channels = channels();
         List<List<HomeRows.Card>> feeds = new ArrayList<>();
@@ -103,9 +121,14 @@ final class YouTubeRow {
         List<HomeRows.Card> out = take(ml, ml.isEmpty() ? 0 : MALAYALAM);
         out.addAll(take(other, SIZE - out.size()));
         Collections.shuffle(out);
-        if (!out.isEmpty()) {
-            cached = out;
-            cachedAt = now;
+        synchronized (YouTubeRow.class) {
+            if (!out.isEmpty()) {
+                cached = out;
+                cachedAt = now;
+                emptyAt = 0;
+            } else {
+                emptyAt = now;
+            }
         }
         return out;
     }

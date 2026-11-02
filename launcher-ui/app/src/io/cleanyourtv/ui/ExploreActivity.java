@@ -794,8 +794,16 @@ public class ExploreActivity extends Activity {
                 .withEndAction(() -> { if (!menuOpen) box.setVisibility(View.GONE); }).start();
         shade.animate().alpha(0).setDuration(200).withEndAction(() -> { if (!menuOpen) shade.setVisibility(View.GONE); }).start();
         scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        if (restore && beforeMenu != null && beforeMenu.isAttachedToWindow()) beforeMenu.requestFocus();
-        else focusPage();
+        boolean back = false;
+        if (restore && beforeMenu != null && beforeMenu.isAttachedToWindow()) {
+            if (beforeMenu == burger) {   // the corner button is focusable only when asked to be
+                corner(burger, true);
+                back = burger.hasFocus();
+            } else {
+                back = beforeMenu.requestFocus();
+            }
+        }
+        if (!back) focusPage();
         if (hero != null) restartHero();
     }
 

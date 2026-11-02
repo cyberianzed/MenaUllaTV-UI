@@ -37,7 +37,7 @@ final class CustomTiles {
     static int color(String pkg) {
         String[] t = get(pkg);
         try {
-            return t == null || t[1].isEmpty() ? 0xFF1C1C1E : Color.parseColor(t[1]);
+            return t == null || t[1].isEmpty() ? 0xFF1C1C1E : Color.parseColor(t[1].split(",")[0].trim());   // a gradient: its first colour
         } catch (IllegalArgumentException e) {
             return 0xFF1C1C1E;
         }
@@ -53,16 +53,15 @@ final class CustomTiles {
      */
     static int[] gradient(String pkg) {
         String[] t = get(pkg);
-        String[] parts = t == null ? new String[0] : t[1].split(",");
-        if (parts.length >= 2) {
-            try {
-                int a = Color.parseColor(parts[0].trim()), b = Color.parseColor(parts[1].trim());
-                int glow = parts.length >= 3 ? Color.parseColor(parts[2].trim()) : 0;
-                int where = parts.length >= 4 && parts[3].trim().equalsIgnoreCase("bottom") ? BOTTOM : TOP_LEFT;
-                return new int[] {a, b, glow, where};
-            } catch (IllegalArgumentException ignored) {
-            }
+        java.util.List<Integer> colours = new java.util.ArrayList<>();
+        int where = TOP_LEFT;
+        for (String part : t == null ? new String[0] : t[1].split(",")) {
+            String p = part.trim();
+            if (p.equalsIgnoreCase("bottom")) where = BOTTOM;
+            else if (p.equalsIgnoreCase("topleft")) where = TOP_LEFT;
+            else try { colours.add(Color.parseColor(p)); } catch (IllegalArgumentException ignored) { }
         }
+        if (colours.size() >= 2) return new int[] {colours.get(0), colours.get(1), colours.size() >= 3 ? colours.get(2) : 0, where};
         int[] s = style(pkg);
         return new int[] {s[0], s[1], 0, PLAIN};
     }
@@ -167,9 +166,8 @@ final class CustomTiles {
                 .setPositiveButton(Ui.tr("Salvar", "Save"), (d, w) -> {
                     String hex = color.getText().toString().trim();
                     if (!hex.isEmpty() && !hex.startsWith("#")) hex = "#" + hex;
-                    try {
-                        if (!hex.isEmpty()) Color.parseColor(hex);
-                    } catch (IllegalArgumentException e) {
+                    // A colour, or a gradient as config.json writes it ("#A,#B,#glow,bottom")
+                    if (!hex.isEmpty() && !hex.matches(TvConfig.TILE_COLOR)) {
                         Toast.makeText(a, Ui.tr("Cor inválida: use #RRGGBB.", "Invalid color: use #RRGGBB."), Toast.LENGTH_LONG).show();
                         return;
                     }
