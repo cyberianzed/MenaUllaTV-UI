@@ -138,8 +138,17 @@ final class DeepLinks {
 
     /** Opens the title in the app when there's a link it takes; otherwise false (the caller opens the app). */
     static boolean open(Context c, String pkg, String url) {
+        return open(c, pkg, url, false);
+    }
+
+    /**
+     * [fresh]: the app starts over (its old task closed), so a link lands on its title even when the app's player is
+     * still open in the background with something else paused (SonyLIV then shows that instead).
+     */
+    static boolean open(Context c, String pkg, String url, boolean fresh) {
         if (url == null) return false;
         Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (fresh) i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
         if (pkg.equals("com.netflix.ninja")) i.putExtra("source", "30");   // Netflix for TV wants to know it's a deep link
         if (i.resolveActivity(c.getPackageManager()) == null) return false;
         try {

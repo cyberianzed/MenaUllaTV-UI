@@ -464,7 +464,7 @@ final class HomeRows {
             }
             String link = url;
             MAIN.post(() -> {
-                if (link != null && DeepLinks.open(a, card.pkg, link)) return;
+                if (link != null && DeepLinks.open(a, card.pkg, link, true)) return;
                 Intent app = HomeApps.launchIntent(a.getPackageManager(), card.pkg);
                 if (app != null) {
                     try {
