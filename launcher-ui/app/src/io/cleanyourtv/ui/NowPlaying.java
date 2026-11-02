@@ -96,21 +96,23 @@ public final class NowPlaying extends NotificationListenerService {
      */
     private String art(MediaMetadata m, String id) {
         String link = artLink(m);
-        if (!link.isEmpty()) return link;
+        if (!link.isEmpty()) { AppLog.w("now playing: art from " + link); return link; }
         android.graphics.Bitmap b = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
         if (b == null) b = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if (b == null) b = m.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
         if (b == null && m.getDescription() != null) b = m.getDescription().getIconBitmap();
-        if (b == null || b.getWidth() < 64) return "";
+        if (b == null || b.getWidth() < 64) {
+            AppLog.w("now playing: no art from the app" + (b == null ? "" : " (too small: " + b.getWidth() + " px)"));
+            return "";
+        }
+        AppLog.w("now playing: art as a picture, " + b.getWidth() + "x" + b.getHeight());
         java.io.File dir = new java.io.File(getFilesDir(), "played");
-        java.io.File f = new java.io.File(dir, Integer.toHexString(id.hashCode()) + ".jpg");
+        java.io.File f = new java.io.File(dir, Integer.toHexString(id.hashCode()) + "-w.jpg");
         if (!f.isFile()) {
             try {
                 //noinspection ResultOfMethodCallIgnored
                 dir.mkdirs();
-                float scale = Math.min(1f, 480f / b.getWidth());
-                android.graphics.Bitmap small = scale < 1f
-                        ? android.graphics.Bitmap.createScaledBitmap(b, 480, Math.max(1, Math.round(b.getHeight() * scale)), true) : b;
+                android.graphics.Bitmap small = wide(b);
                 try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
                     small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
                 }
@@ -121,6 +123,85 @@ public final class NowPlaying extends NotificationListenerService {
             }
         }
         return android.net.Uri.fromFile(f).toString();
+    }
+
+    /**
+     * The card is wide (16:9): a wide picture is just scaled down; a tall poster (SonyLIV's) would be cut to a strip
+     * across the middle, so it's set whole in the centre over a darkened, blurred copy of itself, Apple TV-like.
+     */
+    static android.graphics.Bitmap wide(android.graphics.Bitmap b) {
+        int w = 480, h = 270;
+        if (b.getWidth() >= b.getHeight() * 1.3f) {
+            float scale = Math.min(1f, (float) w / b.getWidth());
+            return scale < 1f ? android.graphics.Bitmap.createScaledBitmap(b, w, Math.max(1, Math.round(b.getHeight() * scale)), true) : b;
+        }
+        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        android.graphics.Paint smooth = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+        // the blur: down to a few pixels and back up, twice, which is soft and nearly free
+        android.graphics.Bitmap tiny = android.graphics.Bitmap.createScaledBitmap(b, 12, Math.max(1, Math.round(12f * b.getHeight() / b.getWidth())), true);
+        android.graphics.Bitmap soft = android.graphics.Bitmap.createScaledBitmap(tiny, 48, Math.max(1, Math.round(48f * b.getHeight() / b.getWidth())), true);
+        float cover = Math.max((float) w / soft.getWidth(), (float) h / soft.getHeight());
+        float sw = soft.getWidth() * cover, sh = soft.getHeight() * cover;
+        c.drawBitmap(soft, null, new android.graphics.RectF((w - sw) / 2, (h - sh) / 2, (w + sw) / 2, (h + sh) / 2), smooth);
+        c.drawColor(0x8C000000);   // darker, so the poster stands out
+        float fit = (float) h / b.getHeight();
+        float pw = b.getWidth() * fit;
+        c.drawBitmap(b, null, new android.graphics.RectF((w - pw) / 2, 0, (w + pw) / 2, h), smooth);
+        return out;
+    }
+
+    /**
+     * A poster saved before pictures were made wide (its file name has no "-w"): made wide now, once. The new file's
+     * address, or the same one when it can't be read. Off the main thread.
+     */
+    static String widen(android.content.Context c, String link) {
+        if (link != null && (link.startsWith("https://") || link.startsWith("http://"))) return widenWeb(c, link);
+        if (link == null || !link.startsWith("file:") || link.endsWith("-w.jpg")) return link;
+        java.io.File old = new java.io.File(android.net.Uri.parse(link).getPath());
+        java.io.File f = new java.io.File(old.getParentFile(), old.getName().replace(".jpg", "-w.jpg"));
+        if (!f.isFile()) {
+            android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(old.getPath());
+            if (b == null) return link;
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                wide(b).compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+            } catch (Exception e) {
+                return link;
+            }
+            //noinspection ResultOfMethodCallIgnored
+            old.delete();
+        }
+        return android.net.Uri.fromFile(f).toString();
+    }
+
+    /**
+     * A poster the app gave as a web address (SonyLIV's are tall): fetched once, and a tall one kept as the wide framed
+     * version, since the card would cut it to a strip. A wide one is used as it is. Off the main thread.
+     */
+    private static String widenWeb(android.content.Context c, String link) {
+        java.io.File dir = new java.io.File(c.getFilesDir(), "played");
+        java.io.File f = new java.io.File(dir, "web-" + Integer.toHexString(link.hashCode()) + "-w.jpg");
+        java.io.File wideOk = new java.io.File(dir, "web-" + Integer.toHexString(link.hashCode()) + ".wide");
+        if (f.isFile()) return android.net.Uri.fromFile(f).toString();
+        if (wideOk.isFile()) return link;   // already known to be wide
+        android.graphics.Bitmap b = Images.fetch(link);
+        if (b == null) return link;
+        try {
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+            if (b.getWidth() >= b.getHeight() * 1.3f) {
+                //noinspection ResultOfMethodCallIgnored
+                wideOk.createNewFile();
+                return link;
+            }
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                wide(b).compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+            }
+            prune(dir);
+            return android.net.Uri.fromFile(f).toString();
+        } catch (Exception e) {
+            return link;
+        }
     }
 
     /** At most 40 kept pictures, the newest. */

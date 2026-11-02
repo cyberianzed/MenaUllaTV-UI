@@ -147,7 +147,7 @@ final class HomeRows {
         // All of that app's titles wait for its server, even those whose own picture is the app's placeholder.
         if (!serverDown.isEmpty()) out.removeIf(card -> serverDown.contains(card.pkg));
         rank(out);
-        played(out, apps, hidden);
+        played(c, out, apps, hidden);
         Collections.sort(out, (a, b) -> Long.compare(b.rank, a.rank));
         onePerShow(out);
         List<Card> top = out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
@@ -199,7 +199,7 @@ final class HomeRows {
      * What video apps said they played (NowPlaying, with Notification access): a title already in the row moves to when
      * it was played; one that isn't (SonyLIV never adds its own) joins it, opening its app. The last two weeks.
      */
-    private static void played(List<Card> cards, Set<String> apps, Set<String> hidden) {
+    private static void played(Context c0, List<Card> cards, Set<String> apps, Set<String> hidden) {
         org.json.JSONArray all = Prefs.played();
         long now = System.currentTimeMillis();
         for (int i = 0; i < all.length(); i++) {
@@ -221,7 +221,7 @@ final class HomeRows {
                 if (at >= match.when) {
                     String episode = p.optString("sub");
                     if (!episode.isEmpty()) match.sub = episode;
-                    String art = p.optString("img");
+                    String art = playedArt(c0, p.optString("img"), title);
                     // The app's own picture first; the one it showed while playing only where it gave none.
                     if (!art.isEmpty() && (match.image == null || match.image.isEmpty())) match.image = art;
                     if (p.optLong("d") > 0) {
@@ -238,7 +238,7 @@ final class HomeRows {
             if (hidden.contains(card.key + "@" + card.when)) continue;
             card.pkg = pkg;
             card.title = title;
-            card.image = p.optString("img");   // the app's own poster, else TMDB's (looked up like any card without one)
+            card.image = playedArt(c0, p.optString("img"), title);   // the app's wide picture, else TMDB's
             card.intent = "";       // opens the app
             card.sub = p.optString("sub");
             card.position = p.optLong("p");
@@ -247,6 +247,25 @@ final class HomeRows {
             cards.add(card);
             AppLog.w("continue watching: played \"" + title + "\" added");
         }
+    }
+
+    /**
+     * The picture for a played title: the app's own when it's wide; a tall one (SonyLIV's posters) gives way to TMDB's
+     * wide backdrop for that exact title (looked up apart; the row is redrawn when it comes), and is shown framed only
+     * until then or when TMDB has none. "" when there's nothing: TMDB is then looked up like any card without one.
+     */
+    private static String playedArt(Context c0, String own, String title) {
+        String shown = NowPlaying.widen(c0, own);
+        boolean tall = shown != null && shown.startsWith("file:") && shown.endsWith("-w.jpg");
+        if (!tall) return shown;
+        String tmdb = knownArt(title);
+        if (tmdb == null) {   // not looked up yet: now, apart
+            java.util.List<String> one = new ArrayList<>();
+            one.add(title);
+            lookUpArt(one);
+            return shown;
+        }
+        return tmdb.isEmpty() ? shown : tmdb;
     }
 
     private static String norm(String s) {
@@ -272,6 +291,7 @@ final class HomeRows {
     }
 
     private static boolean loggedTimes;
+    private static int loggedNetflix;
 
     /**
      * Latest watched first, even for apps that don't keep their "last watched" time up to date (SonyLIV): the
@@ -402,12 +422,23 @@ final class HomeRows {
         try {
             org.json.JSONArray results = Tmdb.get("/search/multi?query=" + java.net.URLEncoder.encode(name, "UTF-8")
                     + "&include_adult=false").optJSONArray("results");
-            for (int i = 0; results != null && i < results.length() && art.isEmpty(); i++) {
-                org.json.JSONObject r = results.optJSONObject(i);
-                if (r == null || "person".equals(r.optString("media_type"))) continue;
-                String backdrop = r.optString("backdrop_path", ""), poster = r.optString("poster_path", "");
-                if (!backdrop.isEmpty() && !"null".equals(backdrop)) art = "https://image.tmdb.org/t/p/w780" + backdrop;
-                else if (!poster.isEmpty() && !"null".equals(poster)) art = Tmdb.POSTER + poster;
+            // A title whose name is exactly this one first; any match only for a longer, telling name: "DC" would
+            // otherwise take whatever TMDB ranks first for those two letters.
+            String wanted = norm(name);
+            boolean shortName = wanted.length() <= 3;
+            for (int pass = 0; pass < (shortName ? 1 : 2) && art.isEmpty(); pass++) {
+                for (int i = 0; results != null && i < results.length() && art.isEmpty(); i++) {
+                    org.json.JSONObject r = results.optJSONObject(i);
+                    if (r == null || "person".equals(r.optString("media_type"))) continue;
+                    String found = norm(r.optString("title", r.optString("name", "")));
+                    String original = norm(r.optString("original_title", r.optString("original_name", "")));
+                    if (pass == 0 && !wanted.equals(found) && !wanted.equals(original)) continue;
+                    String backdrop = r.optString("backdrop_path", ""), poster = r.optString("poster_path", "");
+                    String clean = textless(r.optString("media_type", "movie"), r.optInt("id"));
+                    if (!clean.isEmpty()) art = clean;
+                    else if (!backdrop.isEmpty() && !"null".equals(backdrop)) art = "https://image.tmdb.org/t/p/w780" + backdrop;
+                    else if (!poster.isEmpty() && !"null".equals(poster)) art = Tmdb.POSTER + poster;
+                }
             }
         } catch (Exception e) {
             AppLog.w("art for " + name + ": " + e.getMessage());
@@ -416,6 +447,19 @@ final class HomeRows {
         }
         synchronized (ART) { ART.put(name, art); }
         return art;
+    }
+
+    /** A title's backdrop with no text on it (TMDB keeps those apart: no language), else "". */
+    private static String textless(String kind, int id) {
+        if (id <= 0 || !(kind.equals("movie") || kind.equals("tv"))) return "";
+        try {
+            org.json.JSONArray backdrops = Tmdb.get("/" + kind + "/" + id + "/images?include_image_language=null").optJSONArray("backdrops");
+            org.json.JSONObject best = backdrops == null ? null : backdrops.optJSONObject(0);
+            String path = best == null ? "" : best.optString("file_path", "");
+            return path.isEmpty() ? "" : "https://image.tmdb.org/t/p/w780" + path;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /** "Fullmetal Alchemist Brotherhood - S01E54 (BD 1080p)" -> "Fullmetal Alchemist Brotherhood". */
@@ -473,6 +517,13 @@ final class HomeRows {
                 if (num(q, "browsable", 1) == 0) continue;
                 Card card = card(q, "pp:");
                 if (card != null) out.add(card);
+                if (card != null && card.pkg.contains("netflix") && loggedNetflix < 6) {
+                    loggedNetflix++;
+                    AppLog.w("netflix channel: \"" + card.title + "\" type " + num(q, "type", -1) + ", watch next type "
+                            + num(q, "watch_next_type", -1) + ", position " + num(q, "last_playback_position_millis", -1)
+                            + ", duration " + num(q, "duration_millis", -1) + ", engaged " + num(q, "last_engagement_time_utc_millis", -1)
+                            + ", interaction " + num(q, "interaction_type", -1) + "/" + num(q, "interaction_count", -1));
+                }
             }
         } catch (RuntimeException e) {
             AppLog.w("channel " + channel + ": " + e.getMessage());
