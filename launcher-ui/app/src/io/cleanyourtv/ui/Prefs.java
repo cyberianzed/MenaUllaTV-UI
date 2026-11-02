@@ -263,6 +263,35 @@ final class Prefs {
         sp().edit().putString("launches", all.toString()).apply();
     }
 
+    /**
+     * What video apps reported playing (NowPlaying): [{pkg, title, p (ms), d (ms), t (utc)}], latest first, the last
+     * 30 (one per title).
+     */
+    static org.json.JSONArray played() {
+        try {
+            return new org.json.JSONArray(sp().getString("played", "[]"));
+        } catch (org.json.JSONException e) {
+            return new org.json.JSONArray();
+        }
+    }
+
+    static synchronized void notePlayed(String pkg, String title, String episode, String art, long position, long duration) {
+        org.json.JSONArray before = played(), after = new org.json.JSONArray();
+        try {
+            after.put(new org.json.JSONObject().put("pkg", pkg).put("title", title).put("sub", episode).put("img", art).put("p", position)
+                    .put("d", duration).put("t", System.currentTimeMillis()));
+            for (int i = 0; i < before.length() && after.length() < 30; i++) {
+                org.json.JSONObject o = before.optJSONObject(i);
+                if (o == null || pkg.equals(o.optString("pkg")) && title.equals(o.optString("title"))) continue;
+                long d = o.optLong("d");
+                if (d > 0 && d < 3 * 60_000L) continue;   // an ad or preview recorded before they were left out
+                after.put(o);
+            }
+        } catch (org.json.JSONException ignored) {
+        }
+        sp().edit().putString("played", after.toString()).apply();
+    }
+
     /** Continue watching titles' last seen position and when it last moved: {"wn:12": {"p": ms, "t": utc}}. */
     static org.json.JSONObject watchNextSeen() {
         try {

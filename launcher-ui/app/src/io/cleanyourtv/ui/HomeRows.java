@@ -145,6 +145,7 @@ final class HomeRows {
         // All of that app's titles wait for its server, even those whose own picture is the app's placeholder.
         if (!serverDown.isEmpty()) out.removeIf(card -> serverDown.contains(card.pkg));
         rank(out);
+        played(out, apps, hidden);
         Collections.sort(out, (a, b) -> Long.compare(b.rank, a.rank));
         List<Card> top = out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
         // The row never waits for pictures: those already found are used, the rest are looked up apart and the row
@@ -189,6 +190,64 @@ final class HomeRows {
         } catch (Exception e) {
             AppLog.w("badge for " + pkg + ": " + e.getMessage());
         }
+    }
+
+    /**
+     * What video apps said they played (NowPlaying, with Notification access): a title already in the row moves to when
+     * it was played; one that isn't (SonyLIV never adds its own) joins it, opening its app. The last two weeks.
+     */
+    private static void played(List<Card> cards, Set<String> apps, Set<String> hidden) {
+        org.json.JSONArray all = Prefs.played();
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < all.length(); i++) {
+            org.json.JSONObject p = all.optJSONObject(i);
+            if (p == null) continue;
+            String pkg = p.optString("pkg"), title = p.optString("title");
+            long at = p.optLong("t");
+            if (!apps.contains(pkg) || title.isEmpty() || now - at > 14L * 24 * 3600_000) continue;
+            String name = norm(title);
+            Card match = null;
+            for (Card c : cards) {
+                if (!pkg.equals(c.pkg)) continue;
+                String other = norm(c.title);
+                if (!other.isEmpty() && (other.contains(name) || name.contains(other))) { match = c; break; }
+            }
+            if (match != null) {
+                match.rank = Math.max(match.rank, at);
+                // The app's own entry is older: the episode and how far in are what was just played.
+                if (at >= match.when) {
+                    String episode = p.optString("sub");
+                    if (!episode.isEmpty()) match.sub = episode;
+                    String art = p.optString("img");
+                    // The app's own picture first; the one it showed while playing only where it gave none.
+                    if (!art.isEmpty() && (match.image == null || match.image.isEmpty())) match.image = art;
+                    if (p.optLong("d") > 0) {
+                        match.position = p.optLong("p");
+                        match.duration = p.optLong("d");
+                    }
+                }
+                AppLog.w("continue watching: played \"" + title + "\" moves up");
+                continue;
+            }
+            Card card = new Card();
+            card.key = "wn:np:" + pkg + ":" + Integer.toHexString(title.hashCode());
+            card.when = at;
+            if (hidden.contains(card.key + "@" + card.when)) continue;
+            card.pkg = pkg;
+            card.title = title;
+            card.image = p.optString("img");   // the app's own poster, else TMDB's (looked up like any card without one)
+            card.intent = "";       // opens the app
+            card.sub = p.optString("sub");
+            card.position = p.optLong("p");
+            card.duration = p.optLong("d");
+            card.rank = at;
+            cards.add(card);
+            AppLog.w("continue watching: played \"" + title + "\" added");
+        }
+    }
+
+    private static String norm(String s) {
+        return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
     }
 
     private static boolean loggedTimes;
