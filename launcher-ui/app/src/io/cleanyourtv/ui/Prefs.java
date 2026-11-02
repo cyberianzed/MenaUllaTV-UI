@@ -253,6 +253,23 @@ final class Prefs {
 
     static void setHiddenChannels(org.json.JSONArray v) { put("hidden_channels", v.toString()); }
 
+    /**
+     * Continue watching titles taken off the row on this TV ("id@last watched"): the launcher can't delete another
+     * app's entry, so it hides that viewing; watching the title again (a new time) brings it back. The last 200.
+     */
+    static java.util.Set<String> hiddenWatchNext() {
+        return new java.util.HashSet<>(java.util.Arrays.asList(sp().getString("hidden_watch_next", "").split("\\n")));
+    }
+
+    static void hideWatchNext(String id) {
+        java.util.List<String> all = new java.util.ArrayList<>(java.util.Arrays.asList(sp().getString("hidden_watch_next", "").split("\\n")));
+        all.remove("");
+        all.remove(id);
+        all.add(id);
+        while (all.size() > 200) all.remove(0);
+        sp().edit().putString("hidden_watch_next", String.join("\n", all)).apply();
+    }
+
     // MARK: - Custom tiles
 
     /** "logo source|#RRGGBB" for a styled shelf tile, or "" (CustomTiles). */

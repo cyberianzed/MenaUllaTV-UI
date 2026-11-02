@@ -125,6 +125,7 @@ final class HomeRows {
         if (!canRead(c)) return out;
         Set<String> apps = launchablePackages(c);
         Set<String> serverDown = new HashSet<>();   // apps whose home media server (Emby, Jellyfin, Plex) is off
+        Set<String> hidden = Prefs.hiddenWatchNext();
         try (Cursor q = c.getContentResolver().query(TvContract.WatchNextPrograms.CONTENT_URI, null, null, null, null)) {
             while (q != null && q.moveToNext()) {
                 if (num(q, "browsable", 1) == 0) continue;
@@ -133,6 +134,7 @@ final class HomeRows {
                 if (!serverUp(card)) serverDown.add(card.pkg);
                 card.when = num(q, "last_engagement_time_utc_millis", 0);
                 card.position = num(q, "last_playback_position_millis", 0);
+                if (hidden.contains(card.key + "@" + card.when)) continue;   // taken off the row on this TV
                 card.duration = num(q, "duration_millis", 0);
                 out.add(card);
             }
@@ -153,6 +155,7 @@ final class HomeRows {
             else missing.add(card.title);
         }
         if (!missing.isEmpty()) lookUpArt(missing);
+        for (Card card : top) appBadge(c, card.pkg);
         AppLog.w("watch next: " + top.size() + " titles, " + missing.size() + " pictures to look up");
         if (!loggedLinks) {
             loggedLinks = true;
@@ -163,6 +166,27 @@ final class HomeRows {
             }
         }
         return top;
+    }
+
+    /** Each app's icon, small (56 px) and rounded, for Continue watching's corner badge: once per app per process. */
+    private static final java.util.Map<String, Bitmap> BADGES = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static void appBadge(Context c, String pkg) {
+        if (pkg == null || pkg.isEmpty() || BADGES.containsKey(pkg)) return;
+        try {
+            android.graphics.drawable.Drawable d = c.getPackageManager().getApplicationIcon(pkg);
+            int size = 56;
+            Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas cv = new android.graphics.Canvas(b);
+            android.graphics.Path clip = new android.graphics.Path();
+            clip.addRoundRect(0, 0, size, size, size * 0.24f, size * 0.24f, android.graphics.Path.Direction.CW);
+            cv.clipPath(clip);
+            d.setBounds(0, 0, size, size);
+            d.draw(cv);
+            BADGES.put(pkg, b);
+        } catch (Exception e) {
+            AppLog.w("badge for " + pkg + ": " + e.getMessage());
+        }
     }
 
     private static final java.util.Map<String, Object[]> SERVERS = new java.util.HashMap<>();   // host:port -> {up, when}
@@ -448,6 +472,19 @@ final class HomeRows {
         ImageView img = new ImageView(a);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
         card.addView(img, new FrameLayout.LayoutParams(w, h));
+        Bitmap from = c.key != null && c.key.startsWith("wn:") ? BADGES.get(c.pkg) : null;
+        if (from != null) {   // Continue watching: which app it's in, as its icon in the corner
+            ImageView badge = new ImageView(a);
+            badge.setImageBitmap(from);
+            badge.setClipToOutline(true);
+            badge.setBackground(TvUi.round(0x66000000, 8 * k));
+            int pad = Math.round(1.5f * k);
+            badge.setPadding(pad, pad, pad, pad);
+            int bs = Math.round(28 * k);
+            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(bs, bs, Gravity.TOP | Gravity.START);
+            blp.leftMargin = blp.topMargin = Math.round(10 * k);
+            card.addView(badge, blp);
+        }
         load(img, c.image, w, h, c.title);
         if (c.duration > 0 && c.position > 0) {   // how far along: a thin bar over the picture's bottom
             FrameLayout track = new FrameLayout(a);
@@ -463,6 +500,28 @@ final class HomeRows {
         }
         card.setContentDescription(c.title);
         card.setOnClickListener(v -> open.open(c));
+        if (c.key != null && c.key.startsWith("wn:")) card.setOnLongClickListener(v -> {   // hold OK: take it off the row
+            android.widget.PopupMenu menu = new android.widget.PopupMenu(a, v, Gravity.END);
+            menu.getMenu().add(Ui.tr("Remover de Continuar assistindo", "Remove from Continue watching"));
+            menu.getMenu().add(Ui.tr("Abrir", "Open"));
+            menu.setOnMenuItemClickListener(item -> {
+                if (item.getOrder() == 0 && item.getTitle().toString().startsWith(Ui.tr("Remover", "Remove"))) {
+                    Prefs.hideWatchNext(c.key + "@" + c.when);
+                    ViewGroup row = (ViewGroup) cell.getParent();
+                    if (row != null) {
+                        int at = row.indexOfChild(cell);
+                        row.removeView(cell);
+                        View next = row.getChildAt(Math.min(at, row.getChildCount() - 1));   // the focus moves to its neighbour
+                        if (next != null) next.requestFocus();
+                    }
+                } else {
+                    open.open(c);
+                }
+                return true;
+            });
+            menu.show();
+            return true;
+        });
         cell.addView(card, new LinearLayout.LayoutParams(w, h));
         TextView name = TvUi.text(a, k, 22, Ui.regular, TvUi.DIM);
         TvUi.focusable(card, k, 14 * k, name);
