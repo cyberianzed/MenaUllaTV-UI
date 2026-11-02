@@ -112,8 +112,6 @@ final class HomeRows {
     static final class Card {
         String key, title, sub, image, intent, pkg;
         String series;   // the TV's series id for an episode (TvContract), when the app gives one
-        String contentId;   // the app's own id for the title (internal_provider_id), the surest way to tell duplicates
-        int type;           // watch next type: 0 continue, 1 next episode, 2 new, 3 watchlist (TvContract)
         boolean portrait;
         long position, duration, when;
         long rank;   // when it was last watched, as best known: the app's own time, or when its position last moved
@@ -136,31 +134,22 @@ final class HomeRows {
                 Card card = card(q, "wn:");
                 if (card == null || !apps.contains(card.pkg)) continue;
                 if (!serverUp(card)) serverDown.add(card.pkg);
-                card.when = millis(num(q, "last_engagement_time_utc_millis", 0));
+                card.when = num(q, "last_engagement_time_utc_millis", 0);
                 card.position = num(q, "last_playback_position_millis", 0);
                 if (hidden.contains(card.key + "@" + card.when)) continue;   // taken off the row on this TV
                 card.duration = num(q, "duration_millis", 0);
                 card.series = str(q, "series_id");
-                card.contentId = str(q, "internal_provider_id");
-                card.type = (int) num(q, "watch_next_type", 0);
-                if (finished(card)) continue;   // watched to the end: nothing to continue
                 out.add(card);
             }
         } catch (RuntimeException e) {
             AppLog.w("watch next: " + e.getMessage());
         }
-        continueChannels(c, out, apps, hidden);
         // All of that app's titles wait for its server, even those whose own picture is the app's placeholder.
         if (!serverDown.isEmpty()) out.removeIf(card -> serverDown.contains(card.pkg));
         rank(out);
         played(c, out, apps, hidden);
-        // 4: untouched for six months (by the app's time and ours): gone stale
-        long now = System.currentTimeMillis();
-        out.removeIf(card -> card.rank > 0 && now - card.rank > 183L * 24 * 3600_000);
-        // 2: a title to continue edges out a next episode or a new one from the same moment (half a day), not more
-        Collections.sort(out, (a, b) -> Long.compare(b.rank - (b.type == 0 ? 0 : 12 * 3600_000L), a.rank - (a.type == 0 ? 0 : 12 * 3600_000L)));
+        Collections.sort(out, (a, b) -> Long.compare(b.rank, a.rank));
         onePerShow(out);
-        threePerApp(out);
         List<Card> top = out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
         // The row never waits for pictures: those already found are used, the rest are looked up apart and the row
         // is refreshed once they arrive (see onArt).
@@ -282,60 +271,10 @@ final class HomeRows {
             Card card = it.next();
             String name = norm(cleanTitle(card.title));
             boolean repeat = false;
-            if (card.contentId != null && !card.contentId.isEmpty() && !seen.add("cid:" + card.pkg + ":" + card.contentId)) repeat = true;
             if (card.series != null && !card.series.isEmpty() && !seen.add("id:" + card.pkg + ":" + card.series)) repeat = true;
             if (!name.isEmpty() && !seen.add("name:" + name)) repeat = true;
             if (repeat) it.remove();
         }
-    }
-
-    /** A time given in seconds (some apps do) read as milliseconds: anything before 1973 can't be meant. */
-    private static long millis(long t) {
-        return t > 0 && t < 100_000_000_000L ? t * 1000 : t;
-    }
-
-    /** Watched to the end (over 95%): an app that forgot to take it off. */
-    private static boolean finished(Card card) {
-        return card.duration > 0 && card.position > 0 && card.position > card.duration * 0.95;
-    }
-
-    /**
-     * An app's preview channel named "Continue Watching" (Stremio keeps its progress there, not in the TV's list): its
-     * titles join the row. They carry no time, so they're as recent as Home's last opening of that app, in their order.
-     */
-    private static void continueChannels(Context c, List<Card> out, Set<String> apps, Set<String> hidden) {
-        org.json.JSONObject launched = Prefs.launches();
-        try (Cursor q = c.getContentResolver().query(TvContract.Channels.CONTENT_URI, null, null, null, null)) {
-            while (q != null && q.moveToNext()) {
-                if (!TvContract.Channels.TYPE_PREVIEW.equals(str(q, "type"))) continue;
-                String pkg = str(q, "package_name"), name = str(q, "display_name").toLowerCase(java.util.Locale.ROOT);
-                if (!apps.contains(pkg) || pkg.equals(c.getPackageName()) || !(name.contains("continue") || name.contains("on deck"))) continue;
-                long at = launched.optLong(pkg, 0);
-                int i = 0;
-                for (Card card : channelPrograms(c, num(q, "_id", -1))) {
-                    card.key = "wn:ch:" + card.key;   // a Continue watching card (badge, remove), from a channel
-                    card.when = at > 0 ? at - i : 0;
-                    i++;
-                    if (finished(card) || hidden.contains(card.key + "@" + card.when)) continue;
-                    out.add(card);
-                }
-            }
-        } catch (RuntimeException e) {
-            AppLog.w("continue channels: " + e.getMessage());
-        }
-    }
-
-    /** 3: no more than three of one app's titles at the front, so one app can't fill the row; the rest follow. */
-    private static void threePerApp(List<Card> cards) {
-        java.util.Map<String, Integer> count = new java.util.HashMap<>();
-        List<Card> front = new ArrayList<>(), back = new ArrayList<>();
-        for (Card card : cards) {
-            int n = count.merge(card.pkg, 1, Integer::sum);
-            (n <= 3 ? front : back).add(card);
-        }
-        cards.clear();
-        cards.addAll(front);
-        cards.addAll(back);
     }
 
     private static boolean loggedTimes;
