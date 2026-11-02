@@ -78,7 +78,6 @@ final class TvConfig {
             if (channels != null) Prefs.setAppChannels(channels);
             JSONArray dropped = o.optJSONArray("hidden_channels");
             if (dropped != null) Prefs.setHiddenChannels(dropped);
-            if (o.has("bar_font")) Prefs.setBarFont(o.optString("bar_font"));
             JSONArray youtube = o.optJSONArray("youtube_channels");
             if (youtube != null) Prefs.setYoutubeChannels(youtube);
             JSONObject city = o.optJSONObject("city");

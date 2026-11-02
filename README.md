@@ -21,15 +21,9 @@ its README is [`README.cleanyourtv-ui.md`](README.cleanyourtv-ui.md). This page 
   Hindi, Telugu, Kannada… on the left of the dot, **Shows** (series with seasons and episodes) and the genres on the right.
   Pick one and the rows under it change in place; the focus stays on the word, so Left and Right flip through them.
 
-  ![The language · genre bar over Trending in Malayalam](docs/menaullatv/rows.jpg)
-
-  ![Malayalam and Comedy picked on the bar: the rows below show Malayalam comedies](docs/menaullatv/screenshots/malayalam-comedy.jpg)
-
 - A **YouTube row** above the apps' rows: recent videos from picked channels (about a fifth Malayalam, the rest new
   songs, tech, trailers and podcasts), no Shorts, opened in TizenTube. It refreshes every 30 minutes and when the TV
   turns on. Your own channels can replace the picks (see [Configuration](#configuration)).
-
-  ![The YouTube row above the Netflix and Prime Video rows](docs/menaullatv/screenshots/youtube-and-app-rows.jpg)
 
 - A **clock** (12-hour by default) and a round **Home Settings** button at the top right, beside the menu button at the
   top left. All three show at the top of Home only and fade away as you scroll.
@@ -62,7 +56,15 @@ own home screen.
 
 **Name**: the app shows as *MenaUllaTV UI* on the TV, and its Settings credit both projects.
 
-More screenshots, taken on the TV: [`docs/menaullatv/screenshots/`](docs/menaullatv/screenshots/).
+## Screenshots
+
+Taken on the TV (a Lumio Google TV, 1080p).
+
+| | |
+|---|---|
+| ![Home: the banner, the apps and Continue watching](docs/menaullatv/screenshots/home-bethlehem.jpg) | ![The language · genre bar over Trending in Malayalam](docs/menaullatv/screenshots/category-bar.jpg) |
+| ![Malayalam and Comedy picked: Malayalam comedies](docs/menaullatv/screenshots/malayalam-comedy.jpg) | ![English picked: Trending in English](docs/menaullatv/screenshots/english-picked.jpg) |
+| ![The YouTube row above the Netflix and Prime Video rows](docs/menaullatv/screenshots/youtube-and-app-rows.jpg) | |
 
 ## Install
 
@@ -88,7 +90,6 @@ Everything in CleanYourTV UI's [`config.json`](launcher-ui/README.md#configjson)
 
 | Key | What it does | Example |
 |---|---|---|
-| `bar_font` | The language · genre bar's font: `bebas` (default), `anton` or `black` | `"bar_font": "anton"` |
 | `youtube_channels` | Your own channels for the YouTube row, instead of the picks; mark Malayalam ones with `"ml": true` | `["UC…", {"id": "UC…", "ml": true}]` |
 | `hidden_channels` | App channels never shown as rows, by name | `["Stream your library movies"]` |
 | `clock` | `12h` (default), `24h` or `auto` | `"clock": "24h"` |
@@ -102,6 +103,6 @@ subscriptions).
 - [CleanYourTV](https://github.com/Gathin23/cleanyourtv) and [Free My TV](https://github.com/simbasjungles/free-my-tv).
 - Data from [TMDB](https://www.themoviedb.org) (this product uses the TMDB API but is not endorsed or certified by TMDB)
   and YouTube's public channel feeds.
-- Fonts: Inter, Anton and Bebas Neue, under the SIL Open Font License ([`NOTICE`](launcher-ui/NOTICE)).
+- Fonts: Inter and Bebas Neue, under the SIL Open Font License ([`NOTICE`](launcher-ui/NOTICE)).
 
 MIT License, as the original: see [`LICENSE`](LICENSE).

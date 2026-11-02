@@ -33,8 +33,7 @@ Fonts, icons and art
 --------------------
 Third-party material that came with Free My TV keeps its own terms:
 - the Inter typeface, SIL Open Font License 1.1 (app/assets/fonts/OFL.txt);
-- the Anton and Bebas Neue typefaces (the language · genre bar), SIL Open Font License 1.1
-  (app/assets/fonts/OFL-Anton.txt, app/assets/fonts/OFL-BebasNeue.txt);
+- the Bebas Neue typeface (the language · genre bar), SIL Open Font License 1.1 (app/assets/fonts/OFL-BebasNeue.txt);
 - Material Symbols, Apache License 2.0 (app/assets/symbols/LICENSE-material-symbols.txt);
 - the coin logos from cryptocurrency-icons, CC0.
 

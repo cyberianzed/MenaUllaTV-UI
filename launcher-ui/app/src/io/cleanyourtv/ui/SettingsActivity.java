@@ -328,7 +328,7 @@ public class SettingsActivity extends Activity {
             c.drawText(NAME, cx, 612 * k, title);
             c.drawText("Muriyo thodakkunnilla, TV engilum mena aayitt irikkatte.", cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
-            c.drawText("Jose K James · github.com/cyberianzed/cleanyourtv-ui", cx, 742 * k, version);
+            c.drawText("Jose K James · github.com/cyberianzed/MenaUllaTV-UI", cx, 742 * k, version);
             c.drawText(Ui.tr("Baseado no CleanYourTV UI de Matheus Caldeira", "Based on CleanYourTV UI by Matheus Caldeira"), cx, 780 * k, version);
 
             if (screen == MAIN) drawMain(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);

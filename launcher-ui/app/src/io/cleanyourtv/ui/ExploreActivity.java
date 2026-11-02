@@ -2560,24 +2560,16 @@ public class ExploreActivity extends Activity {
         return hs;
     }
 
-    /**
-     * The bar's face, config.json "bar_font": "bebas" (Bebas Neue, like Netflix's logo; the default), "anton" (tall,
-     * condensed) or "black" (Roboto Black stretched wide). {typeface, size step, letter spacing, horizontal scale}.
-     */
-    private Object[] barFace;
+    /** The bar's face: Bebas Neue, tall capitals like Netflix's genre chips (the system's heaviest face if it's missing). */
+    private android.graphics.Typeface barFace;
 
-    private Object[] barFace() {
+    private android.graphics.Typeface barFace() {
         if (barFace != null) return barFace;
-        String f = Prefs.barFont();
-        android.graphics.Typeface t = null;
         try {
-            if (f.equals("anton")) t = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/Anton-Regular.ttf");
-            else if (f.equals("bebas")) t = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/BebasNeue-Regular.ttf");
-        } catch (RuntimeException ignored) {   // a missing file: the system's heavy face below
+            barFace = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/BebasNeue-Regular.ttf");
+        } catch (RuntimeException e) {
+            barFace = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL);
         }
-        if (f.equals("bebas") && t != null) barFace = new Object[] {t, 12, 0.06f, 1f};
-        else if (t != null) barFace = new Object[] {t, 4, 0.04f, 1f};
-        else barFace = new Object[] {android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL), 0, 0.02f, 1.15f};
         return barFace;
     }
 
@@ -2585,11 +2577,9 @@ public class ExploreActivity extends Activity {
      * A wordmark in Netflix's category style: heavy capitals, one colour, no box. Languages a size up from the genres.
      */
     private TextView word(String text, boolean heavy) {
-        Object[] face = barFace();
-        TextView t = TvUi.text(this, k, (heavy ? 40 : 36) + (int) face[1], (android.graphics.Typeface) face[0], TvUi.FAINT);
+        TextView t = TvUi.text(this, k, (heavy ? 40 : 36) + 12, barFace(), TvUi.FAINT);
         t.setText(text);
-        t.setTextScaleX((float) face[3]);
-        t.setLetterSpacing((float) face[2] + (heavy ? 0.01f : 0));
+        t.setLetterSpacing(heavy ? 0.07f : 0.06f);
         t.setPadding(Math.round(30 * k), Math.round(14 * k), Math.round(30 * k), Math.round(14 * k));
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);
