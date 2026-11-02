@@ -984,7 +984,7 @@ final class HomeApps {
         bg.setShader(new LinearGradient(0, 0, 0, TILE_H, colors[0], colors[1], Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, TILE_W, TILE_H, bg);
         boolean wide = logo.getWidth() > logo.getHeight() * 1.35f;
-        float maxW = TILE_W * (wide ? 0.72f : 0.4f), maxH = TILE_H * (wide ? 0.46f : 0.56f);
+        float maxW = TILE_W * (wide ? 0.86f : 0.5f), maxH = TILE_H * (wide ? 0.6f : 0.66f);   // a little margin, no more
         float scale = Math.min(maxW / logo.getWidth(), maxH / logo.getHeight());
         float w = logo.getWidth() * scale, h = logo.getHeight() * scale;
         canvas.drawBitmap(logo, null, new RectF((TILE_W - w) / 2, (TILE_H - h) / 2, (TILE_W + w) / 2, (TILE_H + h) / 2),

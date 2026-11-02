@@ -58,14 +58,34 @@ public class TmdbLoginActivity extends Activity {
         box.addView(line(30, TvUi.DIM, Tmdb.accountName(this)));
         box.addView(line(26, TvUi.DIM, Ui.tr("Minha lista e as notas vêm da sua conta e são salvas nela.",
                 "My list and ratings come from your account and are saved to it.")));
+        // Done has the focus, and Disconnect takes a second press: an OK that arrives with the screen (a double
+        // press, a key repeat) used to sign the account out on its own.
+        LinearLayout buttons = new LinearLayout(this);
+        TextView done = TvUi.button(this, k, Ui.tr("Pronto", "Done"), v -> finish());
+        boolean[] armed = {false};
+        TextView[] outRef = new TextView[1];
         TextView out = TvUi.button(this, k, Ui.tr("Desconectar", "Disconnect"), v -> {
+            if (!armed[0]) {   // the first press only asks; a few seconds later it's back to normal
+                armed[0] = true;
+                outRef[0].setText(Ui.tr("OK de novo para desconectar", "Press OK again to disconnect"));
+                outRef[0].postDelayed(() -> {
+                    armed[0] = false;
+                    outRef[0].setText(Ui.tr("Desconectar", "Disconnect"));
+                }, 4000);
+                return;
+            }
             Tmdb.signOut(this);
             finish();
         });
+        outRef[0] = out;
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        gap.rightMargin = Math.round(20 * k);
+        buttons.addView(done, gap);
+        buttons.addView(out);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = Math.round(30 * k);
-        box.addView(out, lp);
-        out.requestFocus();
+        box.addView(buttons, lp);
+        done.requestFocus();
     }
 
     private void start() {
