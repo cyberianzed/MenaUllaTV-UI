@@ -308,13 +308,40 @@ public class ExploreActivity extends Activity {
         if (menuOpen) closeMenu(false);
         stopMoving(false);
         if (!HOME.equals(current)) showPage(HOME);
-        else {
-            scroll.top();
-            focusPage();
-        }
+        else resetHome();
         String what = intent == null ? null : intent.getStringExtra("open");
         if ("watchlist".equals(what) && Tmdb.hasKey()) showPage(LIST);
         else if ("explore".equals(what)) RemoteKeys.run(this, "tmdb:explore");
+    }
+
+    /**
+     * Home pressed on Home: everything back where it starts (the page at the top, each row at its first title, the
+     * bar on its dot) and the focus on the first app. What's picked on the bar stays picked.
+     */
+    private void resetHome() {
+        scroll.top();
+        rewind(page);
+        shelfApp = null;
+        if (appsLine != null && appsLine.getChildCount() > 0) {
+            scroll.hold(400);
+            if (appsLine.getChildAt(0).requestFocus()) return;
+        }
+        focusPage();
+    }
+
+    /** Each row back at its start, and what it remembered focusing forgotten: entering it lands on its first item. */
+    private void rewind(View v) {
+        if (v instanceof HomeRows.CenterScroll) {
+            if (barDot != null) ((HomeRows.CenterScroll) v).center(barDot, false);
+        } else if (v instanceof android.widget.HorizontalScrollView) {
+            v.scrollTo(0, 0);
+        }
+        if (v instanceof TvUi.Row) ((TvUi.Row) v).forget();
+        if (v instanceof HomeRows.FocusRow && barDot != null) ((HomeRows.FocusRow) v).remember(barDot);
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) rewind(g.getChildAt(i));
+        }
     }
 
     // MARK: - Sounds: a soft tick as the focus moves, like Google TV's
@@ -507,14 +534,13 @@ public class ExploreActivity extends Activity {
             int pad = Math.round(16 * k);
             b.setPadding(pad, pad, pad, pad);
             b.setId(View.generateViewId());
-            b.setFocusable(true);
-            b.setFocusableInTouchMode(true);
             b.setContentDescription(Ui.tr("Menu", "Menu"));
             b.setOnClickListener(v -> openMenu());
             b.setOnFocusChangeListener((v, has) -> {
                 b.setBackground(has ? TvUi.round(TvUi.INK, 30 * k) : null);
                 for (int i = 0; i < b.getChildCount(); i++) b.getChildAt(i).setBackground(TvUi.round(has ? 0xFF14161A : 0xB3FFFFFF, 2 * k));
                 TvUi.lift(v, has, 1.1f, 0, 0);
+                if (!has) corner(v, false);
             });
         }
         return b;
@@ -538,8 +564,6 @@ public class ExploreActivity extends Activity {
         b.addView(icon, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         b.setBackground(TvUi.round(0x33FFFFFF, 34 * k));
         b.setId(View.generateViewId());
-        b.setFocusable(true);
-        b.setFocusableInTouchMode(true);
         b.setContentDescription(Ui.tr("Ajustes do Início", "Home Settings"));
         b.setOnClickListener(v -> {
             if (!HomeApps.open(this, HomeApps.settings(), v, 0, 0, v.getWidth(), v.getHeight()))
@@ -549,12 +573,23 @@ public class ExploreActivity extends Activity {
             b.setBackground(TvUi.round(has ? TvUi.INK : 0x33FFFFFF, 34 * k));
             icon.color(has ? 0xFF14161A : 0xD9FFFFFF);
             TvUi.lift(v, has, 1.1f, 0, 0);
+            if (!has) corner(v, false);
         });
         settingsButton = b;
         return b;
     }
 
     /** Level with the menu button, as far from the right edge as the bars are from the left. */
+    /**
+     * The corner buttons take the focus only when asked to (Up from the banner, or from each other): otherwise an
+     * arrow pressed far right in a row would find the Home Settings button "nearer" than the row above.
+     */
+    private void corner(View v, boolean on) {
+        v.setFocusable(on);
+        v.setFocusableInTouchMode(on);
+        if (on) v.requestFocus();
+    }
+
     private FrameLayout.LayoutParams homeSettingsParams() {
         int size = Math.round(68 * k);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size, Gravity.TOP | Gravity.END);
@@ -824,11 +859,11 @@ public class ExploreActivity extends Activity {
             View f = getCurrentFocus();
             boolean top = f != null && (f == hero || ((hero == null || heroList.isEmpty()) && appsLine != null && f.getParent() == appsLine));
             if (code == KeyEvent.KEYCODE_DPAD_UP && top) {   // Up from the banner (or the shelf, with no banner): the menu button
-                burger.requestFocus();
+                corner(burger, true);
                 return true;
             }
             if (f == burger && code == KeyEvent.KEYCODE_DPAD_RIGHT && settingsButton != null) {
-                settingsButton.requestFocus();
+                corner(settingsButton, true);
                 return true;
             }
             if (f == burger && (code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
@@ -836,17 +871,11 @@ public class ExploreActivity extends Activity {
                 return true;
             }
             if (f != null && f == settingsButton) {
-                if (code == KeyEvent.KEYCODE_DPAD_LEFT) burger.requestFocus();
+                if (code == KeyEvent.KEYCODE_DPAD_LEFT) corner(burger, true);
                 else if (code == KeyEvent.KEYCODE_DPAD_DOWN) focusPage();
                 else if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_BACK)
                     return super.dispatchKeyEvent(e);
                 return true;
-            }
-            if (f != null && f != burger && f != settingsButton && code >= KeyEvent.KEYCODE_DPAD_UP && code <= KeyEvent.KEYCODE_DPAD_RIGHT) {
-                int dir = code == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP : code == KeyEvent.KEYCODE_DPAD_DOWN ? View.FOCUS_DOWN
-                        : code == KeyEvent.KEYCODE_DPAD_LEFT ? View.FOCUS_LEFT : View.FOCUS_RIGHT;
-                View next = f.focusSearch(dir);
-                if (next != null && (next == burger || next == settingsButton)) return true;   // the corners: only Up from the banner
             }
             // The shelf overlaps the banner's picture, so the system's own search could skip it: say where to go.
             boolean shelf = appsLine != null && appsLine.getChildCount() > 0;
@@ -2348,7 +2377,7 @@ public class ExploreActivity extends Activity {
     private String[] pickedLang;    // {code, name}; null: the dot (Malayalam rows, everything else as it comes)
     private String[] pickedGenre;   // a GENRES row; null: every genre
     private LinearLayout cwBox;     // Continue watching sits here, above the bar
-    private View bar;
+    private View bar, barDot;
 
     private String lang() {
         return pickedLang != null ? pickedLang[0] : "ml";
@@ -2530,6 +2559,7 @@ public class ExploreActivity extends Activity {
             reloadRows();
         });
         dotRef[0] = dot;
+        barDot = dot;
         line.addView(dot);
         List<String[]> bar = new ArrayList<>();
         bar.add(SERIES);

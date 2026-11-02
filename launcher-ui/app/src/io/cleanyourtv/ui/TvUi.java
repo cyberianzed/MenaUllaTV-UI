@@ -371,6 +371,11 @@ final class TvUi {
             last = child;
         }
 
+        /** Entered from above or below, the row starts at its first item again (Home pressed on Home). */
+        void forget() {
+            last = null;
+        }
+
         @Override public void addFocusables(ArrayList<View> views, int direction, int mode) {
             View keep = last != null && last.getParent() == this ? last : getChildCount() > 0 ? getChildAt(0) : null;
             if (hasFocus() || keep == null || (direction != FOCUS_UP && direction != FOCUS_DOWN)) {
