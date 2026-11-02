@@ -111,6 +111,7 @@ final class HomeRows {
 
     static final class Card {
         String key, title, sub, image, intent, pkg;
+        String series;   // the TV's series id for an episode (TvContract), when the app gives one
         boolean portrait;
         long position, duration, when;
         long rank;   // when it was last watched, as best known: the app's own time, or when its position last moved
@@ -137,6 +138,7 @@ final class HomeRows {
                 card.position = num(q, "last_playback_position_millis", 0);
                 if (hidden.contains(card.key + "@" + card.when)) continue;   // taken off the row on this TV
                 card.duration = num(q, "duration_millis", 0);
+                card.series = str(q, "series_id");
                 out.add(card);
             }
         } catch (RuntimeException e) {
@@ -147,6 +149,7 @@ final class HomeRows {
         rank(out);
         played(out, apps, hidden);
         Collections.sort(out, (a, b) -> Long.compare(b.rank, a.rank));
+        onePerShow(out);
         List<Card> top = out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
         // The row never waits for pictures: those already found are used, the rest are looked up apart and the row
         // is refreshed once they arrive (see onArt).
@@ -248,6 +251,24 @@ final class HomeRows {
 
     private static String norm(String s) {
         return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+    }
+
+    /**
+     * One card per show, its latest episode (the list is sorted latest first): as Android TV asks apps to keep one
+     * Continue watching entry per series, which some (and file players) don't. The same show is the same TV series id
+     * in one app, or the same name cleaned of episode tags ("Show - S01E54 (BD)" and "Show: · S1 E49"), in any app.
+     */
+    private static void onePerShow(List<Card> cards) {
+        Set<String> seen = new HashSet<>();
+        java.util.Iterator<Card> it = cards.iterator();
+        while (it.hasNext()) {
+            Card card = it.next();
+            String name = norm(cleanTitle(card.title));
+            boolean repeat = false;
+            if (card.series != null && !card.series.isEmpty() && !seen.add("id:" + card.pkg + ":" + card.series)) repeat = true;
+            if (!name.isEmpty() && !seen.add("name:" + name)) repeat = true;
+            if (repeat) it.remove();
+        }
     }
 
     private static boolean loggedTimes;

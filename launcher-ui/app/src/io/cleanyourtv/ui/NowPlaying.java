@@ -19,6 +19,8 @@ import java.util.List;
  */
 public final class NowPlaying extends NotificationListenerService {
     private MediaSessionManager sessions;
+    private String lastNoted;
+    private long lastNotedAt;
     private final List<MediaController> watched = new ArrayList<>();
     private final MediaSessionManager.OnActiveSessionsChangedListener changed = this::follow;
 
@@ -77,12 +79,61 @@ public final class NowPlaying extends NotificationListenerService {
         // The episode, where the app gives one: the description's subtitle, else the metadata's display subtitle.
         CharSequence sub = m.getDescription() == null ? null : m.getDescription().getSubtitle();
         String episode = sub == null ? m.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE) : sub.toString();
-        Prefs.notePlayed(c.getPackageName(), title, episode == null ? "" : episode.trim(), art(m), s.getPosition(), duration);
+        // Apps report every few seconds while playing: the same title is saved again only every 20 s.
+        String which = c.getPackageName() + "|" + title + "|" + episode;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (which.equals(lastNoted) && now - lastNotedAt < 20_000) return;
+        lastNoted = which;
+        lastNotedAt = now;
+        Prefs.notePlayed(c.getPackageName(), title, episode == null ? "" : episode.trim(), art(m, c.getPackageName() + title),
+                s.getPosition(), duration);
         AppLog.w("now playing: " + c.getPackageName() + " \"" + title + "\"");
     }
 
-    /** The poster the app shows in the TV's playback controls, when it gives it as a web address. */
-    private static String art(MediaMetadata m) {
+    /**
+     * The poster the app shows in the TV's playback controls: its web address, or (SonyLIV) the picture itself, kept as
+     * a small JPEG, once per title. "" when the app gives none.
+     */
+    private String art(MediaMetadata m, String id) {
+        String link = artLink(m);
+        if (!link.isEmpty()) return link;
+        android.graphics.Bitmap b = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
+        if (b == null) b = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+        if (b == null) b = m.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+        if (b == null && m.getDescription() != null) b = m.getDescription().getIconBitmap();
+        if (b == null || b.getWidth() < 64) return "";
+        java.io.File dir = new java.io.File(getFilesDir(), "played");
+        java.io.File f = new java.io.File(dir, Integer.toHexString(id.hashCode()) + ".jpg");
+        if (!f.isFile()) {
+            try {
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                float scale = Math.min(1f, 480f / b.getWidth());
+                android.graphics.Bitmap small = scale < 1f
+                        ? android.graphics.Bitmap.createScaledBitmap(b, 480, Math.max(1, Math.round(b.getHeight() * scale)), true) : b;
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                    small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+                }
+                prune(dir);
+            } catch (Exception e) {
+                AppLog.w("now playing: art: " + e.getMessage());
+                return "";
+            }
+        }
+        return android.net.Uri.fromFile(f).toString();
+    }
+
+    /** At most 40 kept pictures, the newest. */
+    private static void prune(java.io.File dir) {
+        java.io.File[] all = dir.listFiles();
+        if (all == null || all.length <= 40) return;
+        java.util.Arrays.sort(all, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        for (int i = 40; i < all.length; i++) //noinspection ResultOfMethodCallIgnored
+            all[i].delete();
+    }
+
+    /** The poster's web address, when the app gives one. */
+    private static String artLink(MediaMetadata m) {
         java.util.List<String> links = new java.util.ArrayList<>();
         if (m.getDescription() != null && m.getDescription().getIconUri() != null) links.add(m.getDescription().getIconUri().toString());
         for (String key : new String[] {MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI,
