@@ -468,13 +468,15 @@ final class HomeRows {
     }
 
     private static void openPlayed(Activity a, Card card) {
+        // A fresh start only when the app's player holds another title (it would show that one); else the quick way.
+        boolean fresh = NowPlaying.holdsOther(card.pkg, card.title);
         String known = LINKS.get(card.pkg + "|" + card.title);
-        if (known != null && !known.isEmpty() && DeepLinks.open(a, card.pkg, known, true)) return;   // found ahead: at once
+        if (known != null && !known.isEmpty() && DeepLinks.open(a, card.pkg, known, fresh)) return;   // found ahead: at once
         new Thread(() -> {
             String url = findLink(a, card.pkg, card.title);
             String link = url;
             MAIN.post(() -> {
-                if (link != null && DeepLinks.open(a, card.pkg, link, true)) return;
+                if (link != null && DeepLinks.open(a, card.pkg, link, fresh)) return;
                 Intent app = HomeApps.launchIntent(a.getPackageManager(), card.pkg);
                 if (app != null) {
                     try {

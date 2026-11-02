@@ -18,6 +18,15 @@ import java.util.List;
  * Notification access. Music apps are left out.
  */
 public final class NowPlaying extends NotificationListenerService {
+    /** What each app's player holds right now (playing or paused): pkg -> title. Gone when it stops. */
+    private static final java.util.Map<String, String> HOLDING = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** True when the app's player holds another title (a link would show that one instead of [title]). */
+    static boolean holdsOther(String pkg, String title) {
+        String held = HOLDING.get(pkg);
+        return held != null && !held.equalsIgnoreCase(title == null ? "" : title.trim());
+    }
+
     private MediaSessionManager sessions;
     private String lastNoted;
     private long lastNotedAt;
@@ -46,6 +55,7 @@ public final class NowPlaying extends NotificationListenerService {
     private void follow(List<MediaController> controllers) {
         for (MediaController c : watched) c.unregisterCallback(callback);
         watched.clear();
+        HOLDING.clear();   // rebuilt from the sessions there are now
         if (controllers == null) return;
         for (MediaController c : controllers) {
             if (!video(c.getPackageName())) continue;
@@ -68,12 +78,16 @@ public final class NowPlaying extends NotificationListenerService {
     private void note(MediaController c) {
         PlaybackState s = c.getPlaybackState();
         MediaMetadata m = c.getMetadata();
-        if (s == null || m == null) return;
-        int st = s.getState();
-        if (st != PlaybackState.STATE_PLAYING && st != PlaybackState.STATE_PAUSED) return;
+        int st = s == null ? PlaybackState.STATE_NONE : s.getState();
+        if (st != PlaybackState.STATE_PLAYING && st != PlaybackState.STATE_PAUSED) {
+            HOLDING.remove(c.getPackageName());   // stopped: nothing held
+            return;
+        }
+        if (m == null) return;
         CharSequence t = m.getDescription() == null ? null : m.getDescription().getTitle();
         String title = t == null ? "" : t.toString().trim();
         if (title.isEmpty() || title.equalsIgnoreCase(appName(c.getPackageName()))) return;   // "PrimeVideo": no title yet
+        HOLDING.put(c.getPackageName(), title);
         long duration = m.getLong(MediaMetadata.METADATA_KEY_DURATION);
         if (duration > 0 && duration < 3 * 60_000L) return;   // an ad or a preview before the episode, not what's watched
         // The episode, where the app gives one: the description's subtitle, else the metadata's display subtitle.
