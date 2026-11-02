@@ -248,6 +248,7 @@ public class ExploreActivity extends Activity {
         if (isHome()) {
             scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> corners(y < 40 * k));
             registerReceiver(screenOn, new android.content.IntentFilter(Intent.ACTION_SCREEN_ON));
+            HomeRows.onArt(artArrived);
         }
         page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
@@ -597,6 +598,11 @@ public class ExploreActivity extends Activity {
         lp.topMargin = Math.round(66 * k) + Math.round(11 * k) - size / 2;   // centred on the bars
         return lp;
     }
+
+    /** Pictures looked up for Continue watching have arrived: its row is drawn again. Held here; HomeRows keeps it weakly. */
+    private final Runnable artArrived = () -> main.post(() -> {
+        if (!isFinishing() && !io.isShutdown() && HOME.equals(current) && sections != null) load(generation, sections, true);
+    });
 
     private boolean cornersShown = true;
 

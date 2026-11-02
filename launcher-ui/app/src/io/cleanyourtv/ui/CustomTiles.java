@@ -43,6 +43,30 @@ final class CustomTiles {
         }
     }
 
+    static final int PLAIN = 0, TOP_LEFT = 1, BOTTOM = 2;
+
+    /**
+     * Explore's tile background, like Nuvio's and Stremio's dark tiles: "#A,#B" fades from A to B, a third colour glows
+     * softly, and a fourth part says where: "topleft" (the default; the fade then runs diagonally) or "bottom" (a glow
+     * rising from below; the fade runs down). "#A,#B,#C,bottom". One colour: lighter at the top, as [style].
+     * {a, b, glow, where}
+     */
+    static int[] gradient(String pkg) {
+        String[] t = get(pkg);
+        String[] parts = t == null ? new String[0] : t[1].split(",");
+        if (parts.length >= 2) {
+            try {
+                int a = Color.parseColor(parts[0].trim()), b = Color.parseColor(parts[1].trim());
+                int glow = parts.length >= 3 ? Color.parseColor(parts[2].trim()) : 0;
+                int where = parts.length >= 4 && parts[3].trim().equalsIgnoreCase("bottom") ? BOTTOM : TOP_LEFT;
+                return new int[] {a, b, glow, where};
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        int[] s = style(pkg);
+        return new int[] {s[0], s[1], 0, PLAIN};
+    }
+
     /** The tile's colors, top and bottom, like HomeView's built-in styles; the logo is drawn as it is. */
     static int[] style(String pkg) {
         int top = color(pkg);

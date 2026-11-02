@@ -871,7 +871,7 @@ final class HomeApps {
         if (TILES.containsKey(cacheKey)) return TILES.get(cacheKey);
         Bitmap custom = styled != null ? CustomTiles.logo(c, pkg, true) : null;
         if (custom != null) {
-            Bitmap tile = styledTile(custom, CustomTiles.style(pkg));
+            Bitmap tile = styledTile(custom, CustomTiles.gradient(pkg));
             tile.setHasMipMap(true);
             TILES.put(cacheKey, tile);
             return tile;
@@ -977,12 +977,29 @@ final class HomeApps {
     }
 
     /** A custom tile: its colour (lighter at the top) and the logo centred, a wordmark wider than a mark. */
-    private static Bitmap styledTile(Bitmap logo, int[] colors) {
+    private static Bitmap styledTile(Bitmap logo, int[] colors) {   // {a, b, glow, where}: CustomTiles.gradient
         Bitmap b = Bitmap.createBitmap(TILE_W, TILE_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(b);
         Paint bg = new Paint();
-        bg.setShader(new LinearGradient(0, 0, 0, TILE_H, colors[0], colors[1], Shader.TileMode.CLAMP));
+        boolean diagonal = colors[3] == CustomTiles.TOP_LEFT;
+        bg.setShader(new LinearGradient(0, 0, diagonal ? TILE_W : 0, TILE_H, colors[0], colors[1], Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, TILE_W, TILE_H, bg);
+        if (colors[2] != 0) {
+            Paint glow = new Paint();
+            RadialGradient light;
+            if (colors[3] == CustomTiles.BOTTOM) {   // rising from below, wider than tall
+                light = new RadialGradient(TILE_W / 2f, TILE_H * 0.9f, TILE_W * 0.48f,
+                        Ui.alpha(colors[2], 0.55f), colors[2] & 0x00FFFFFF, Shader.TileMode.CLAMP);
+                android.graphics.Matrix m = new android.graphics.Matrix();
+                m.setScale(1f, 1.56f * TILE_H / TILE_W * 1.78f, TILE_W / 2f, TILE_H * 0.9f);
+                light.setLocalMatrix(m);
+            } else {   // from the top left
+                light = new RadialGradient(TILE_W * 0.12f, -TILE_H * 0.1f, TILE_W * 0.62f,
+                        Ui.alpha(colors[2], 0.45f), colors[2] & 0x00FFFFFF, Shader.TileMode.CLAMP);
+            }
+            glow.setShader(light);
+            canvas.drawRect(0, 0, TILE_W, TILE_H, glow);
+        }
         boolean wide = logo.getWidth() > logo.getHeight() * 1.35f;
         float maxW = TILE_W * (wide ? 0.86f : 0.5f), maxH = TILE_H * (wide ? 0.6f : 0.66f);   // a little margin, no more
         float scale = Math.min(maxW / logo.getWidth(), maxH / logo.getHeight());

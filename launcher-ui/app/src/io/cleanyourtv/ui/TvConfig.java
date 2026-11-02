@@ -22,6 +22,8 @@ import java.util.List;
  * launcher-ui/README.md, and CleanYourTV themes' dock_apps and app_keys are read too.
  */
 final class TvConfig {
+    /** A tile colour: "#RRGGBB", or a gradient "#RRGGBB,#RRGGBB[,#RRGGBB glow][,topleft|bottom]" (CustomTiles.gradient). */
+    private static final String TILE_COLOR = "#[0-9A-Fa-f]{6}(, *#[0-9A-Fa-f]{6}){0,2}(, *(topleft|bottom))?";
     private TvConfig() {}
 
     static File dir(Context c) {
@@ -139,7 +141,7 @@ final class TvConfig {
                     JSONObject t = tiles.optJSONObject(pkg);
                     String logo = t == null ? "" : t.optString("logo"), color = t == null ? "" : t.optString("color");
                     boolean logoOk = logo.isEmpty() || logo.startsWith("https://") || allowedName(logo);
-                    if (t != null && validPackage(pkg) && logoOk && (color.isEmpty() || color.matches("#[0-9A-Fa-f]{6}"))) {
+                    if (t != null && validPackage(pkg) && logoOk && (color.isEmpty() || color.matches(TILE_COLOR))) {
                         Prefs.setTile(pkg, logo, color);
                     }
                 }

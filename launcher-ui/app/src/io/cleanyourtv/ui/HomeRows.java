@@ -138,7 +138,101 @@ final class HomeRows {
             AppLog.w("watch next: " + e.getMessage());
         }
         Collections.sort(out, (a, b) -> Long.compare(b.when, a.when));
-        return out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
+        List<Card> top = out.size() > 20 ? new ArrayList<>(out.subList(0, 20)) : out;
+        // The row never waits for pictures: those already found are used, the rest are looked up apart and the row
+        // is refreshed once they arrive (see onArt).
+        List<String> missing = new ArrayList<>();
+        for (Card card : top) {
+            if (card.image != null && !card.image.isEmpty()) continue;
+            String known = knownArt(card.title);
+            if (known != null) card.image = known;
+            else missing.add(card.title);
+        }
+        if (!missing.isEmpty()) lookUpArt(missing);
+        AppLog.w("watch next: " + top.size() + " titles, " + missing.size() + " pictures to look up");
+        return top;
+    }
+
+    private static final java.util.Map<String, String> ART = new java.util.HashMap<>();
+    private static final java.util.Set<String> LOOKING = new java.util.HashSet<>();
+    /** Lookups that failed (offline, a bad key), and when: not tried again for 10 minutes. */
+    private static final java.util.Map<String, Long> FAILED = new java.util.HashMap<>();
+    private static final ExecutorService ART_POOL = Executors.newSingleThreadExecutor();
+    private static java.lang.ref.WeakReference<Runnable> onArt = new java.lang.ref.WeakReference<>(null);
+
+    /** Runs (on the lookup's thread) when looked-up pictures arrive; held weakly, so a closed screen isn't kept. */
+    static void onArt(Runnable r) { onArt = new java.lang.ref.WeakReference<>(r); }
+
+    /** The picture found for this title so far ("" for none), or null when it hasn't been looked up yet. */
+    private static String knownArt(String title) {
+        String name = cleanTitle(title);
+        if (name.isEmpty() || !Tmdb.hasKey()) return "";
+        synchronized (ART) { return ART.get(name); }
+    }
+
+    private static void lookUpArt(List<String> titles) {
+        List<String> todo = new ArrayList<>();
+        synchronized (ART) {
+            for (String t : titles) {
+                String name = cleanTitle(t);
+                if (!name.isEmpty() && !ART.containsKey(name) && LOOKING.add(name)) todo.add(name);
+            }
+        }
+        if (todo.isEmpty()) return;
+        ART_POOL.execute(() -> {
+            boolean found = false;
+            for (String name : todo) {
+                String art = artFor(name);
+                synchronized (ART) { LOOKING.remove(name); }
+                found |= art != null && !art.isEmpty();
+            }
+            Runnable r = onArt.get();
+            if (found && r != null) r.run();
+        });
+    }
+
+    /**
+     * A picture for a card its app left without one (a file player's "Show - S01E54 (BD 1080p).mkv"): the title,
+     * cleaned of episode tags, brackets and the file's extension, looked up on TMDB; its backdrop, else its poster.
+     * "" when there's no match, null when offline (looked up again later). Off the main thread only.
+     */
+    static String artFor(String title) {
+        String name = cleanTitle(title);
+        if (name.isEmpty() || !Tmdb.hasKey()) return "";
+        synchronized (ART) {
+            String known = ART.get(name);
+            if (known != null) return known;
+            Long failedAt = FAILED.get(name);
+            if (failedAt != null && System.currentTimeMillis() - failedAt < 10 * 60_000L) return null;
+        }
+        String art = "";
+        try {
+            org.json.JSONArray results = Tmdb.get("/search/multi?query=" + java.net.URLEncoder.encode(name, "UTF-8")
+                    + "&include_adult=false").optJSONArray("results");
+            for (int i = 0; results != null && i < results.length() && art.isEmpty(); i++) {
+                org.json.JSONObject r = results.optJSONObject(i);
+                if (r == null || "person".equals(r.optString("media_type"))) continue;
+                String backdrop = r.optString("backdrop_path", ""), poster = r.optString("poster_path", "");
+                if (!backdrop.isEmpty() && !"null".equals(backdrop)) art = "https://image.tmdb.org/t/p/w780" + backdrop;
+                else if (!poster.isEmpty() && !"null".equals(poster)) art = Tmdb.POSTER + poster;
+            }
+        } catch (Exception e) {
+            AppLog.w("art for " + name + ": " + e.getMessage());
+            synchronized (ART) { FAILED.put(name, System.currentTimeMillis()); }
+            return null;   // offline: looked up again, after a pause
+        }
+        synchronized (ART) { ART.put(name, art); }
+        return art;
+    }
+
+    /** "Fullmetal Alchemist Brotherhood - S01E54 (BD 1080p)" -> "Fullmetal Alchemist Brotherhood". */
+    static String cleanTitle(String title) {
+        if (title == null) return "";
+        String t = title.replaceAll("(?i)\\.(mkv|mp4|avi|mov|webm|m4v|ts)$", "");
+        t = t.replaceAll("[\\[(].*?([\\])]|$)", " ");                    // (BD 1080p), [Group]
+        t = t.replaceAll("(?i)\\b(S\\d{1,2}\\s*E\\d{1,3}|\\d{1,2}x\\d{2,3}|Season\\s*\\d+|Episode\\s*\\d+)\\b.*$", "");
+        t = t.replaceAll("[._]+", " ").replaceAll("\\s+-\\s*$|\\s*[-·:|]+\\s*$", "");
+        return t.replaceAll("\\s+", " ").trim();
     }
 
     /** Each app's preview channels ("YouTube · Recommended"), as {row title, channel id}; this app's own skipped. */
@@ -298,15 +392,11 @@ final class HomeRows {
         FrameLayout card = new FrameLayout(a);
         card.setBackground(TvUi.round(TvUi.CARD, 14 * k));
         card.setClipToOutline(true);
-        TextView fallback = TvUi.text(a, k, 24, Ui.medium, TvUi.DIM);
-        fallback.setText(c.title);
-        fallback.setGravity(Gravity.CENTER);
-        fallback.setPadding(Math.round(14 * k), 0, Math.round(14 * k), 0);
-        card.addView(fallback, new FrameLayout.LayoutParams(w, h));
+        card.addView(placeholder(a, k), new FrameLayout.LayoutParams(w, h));   // under the picture, seen until (or if not) it loads
         ImageView img = new ImageView(a);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
         card.addView(img, new FrameLayout.LayoutParams(w, h));
-        load(img, c.image, w, h);
+        load(img, c.image, w, h, c.title);
         if (c.duration > 0 && c.position > 0) {   // how far along: a thin bar over the picture's bottom
             FrameLayout track = new FrameLayout(a);
             track.setBackground(TvUi.round(0x59FFFFFF, 3 * k));
@@ -394,30 +484,61 @@ final class HomeRows {
 
     // MARK: - Pictures from other apps (content:// and android.resource://, not only the web)
 
+    /** A card with no picture: a soft play badge on a dark gradient (the name is under the card already). */
+    private static View placeholder(Context c, float k) {
+        FrameLayout box = new FrameLayout(c);
+        box.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                new int[] {0xFF2A2F3A, 0xFF171A21}));
+        FrameLayout badge = new FrameLayout(c);
+        badge.setBackground(TvUi.round(0x1FFFFFFF, 40 * k));
+        TvUi.Icon play = new TvUi.Icon(c, "play", 40 * k);
+        play.color(0xB3FFFFFF);
+        badge.addView(play, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        int size = Math.round(80 * k);
+        box.addView(badge, new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
+        return box;
+    }
+
     private static final ExecutorService POOL = Executors.newFixedThreadPool(2);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(24 * 1024 * 1024) {
         @Override protected int sizeOf(String key, Bitmap b) { return b.getByteCount(); }
     };
 
-    private static void load(ImageView img, String uri, int w, int h) {
+    /** A file player's title ("Show - S01E54 (BD 1080p).mkv"): its app's own picture is usually a placeholder. */
+    private static final java.util.regex.Pattern FILE_LIKE =
+            java.util.regex.Pattern.compile("(?i)S\\d{1,2}E\\d{1,3}|\\.(mkv|mp4|avi|mov|webm|m4v)\\b|[\\[(]");
+
+    private static void load(ImageView img, String uri, int w, int h, String title) {
+        boolean fileLike = title != null && FILE_LIKE.matcher(title).find();
         if (uri == null || uri.isEmpty()) return;
         if (uri.startsWith("http://") || uri.startsWith("https://")) {
             Images.load(img, uri, w, h);
             return;
         }
-        img.setTag(Uri.parse(uri));   // not a String: Explore's release/restore of pictures leaves it alone
+        Uri u = Uri.parse(uri);
+        img.setTag(u);   // not a String: Explore's release/restore of pictures leaves it alone
         Bitmap hit = CACHE.get(uri);
-        if (hit != null) {
+        if (hit != null && !fileLike) {
             img.setImageBitmap(hit);
             return;
         }
         ContentResolver cr = img.getContext().getContentResolver();
         POOL.execute(() -> {
-            Bitmap b = decode(cr, Uri.parse(uri), w, h);
-            if (b == null) return;
+            // A file player's card: TMDB's picture of the show first; the app's own picture only when there's none.
+            String art = fileLike ? artFor(title) : null;
+            if (art != null && !art.isEmpty()) {
+                MAIN.post(() -> { if (u.equals(img.getTag())) Images.load(img, art, w, h); });
+                return;
+            }
+            Bitmap b = hit != null ? hit : decode(cr, u, w, h);
+            if (b == null) {   // the app's picture won't open: TMDB's, if it has one
+                String found = fileLike ? art : artFor(title);
+                if (found != null && !found.isEmpty()) MAIN.post(() -> { if (u.equals(img.getTag())) Images.load(img, found, w, h); });
+                return;
+            }
             CACHE.put(uri, b);
-            MAIN.post(() -> { if (Uri.parse(uri).equals(img.getTag())) img.setImageBitmap(b); });
+            MAIN.post(() -> { if (u.equals(img.getTag())) img.setImageBitmap(b); });
         });
     }
 
