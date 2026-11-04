@@ -1137,8 +1137,18 @@ public class ExploreActivity extends Activity {
         });
         if (withHero) {
             background(() -> {
+                // Asked again a few times when nothing comes (the network not up yet as the TV wakes): an empty
+                // answer would otherwise drop the banner until the page is built again.
                 List<Object[]> banner = heroItems(id);
-                main.post(() -> { if (gen == generation && !isFinishing()) setHero(banner); });
+                for (long wait : new long[] {3_000, 10_000, 30_000}) {
+                    if (!banner.isEmpty() || gen != generation || isFinishing()) break;
+                    AppLog.w("explore banner: nothing yet, again in " + wait / 1000 + " s");
+                    try { Thread.sleep(wait); } catch (InterruptedException e) { return; }
+                    if (gen != generation || isFinishing()) return;
+                    banner = heroItems(id);
+                }
+                List<Object[]> got = banner;
+                main.post(() -> { if (gen == generation && !isFinishing()) setHero(got); });
             });
         }
     }
@@ -2277,14 +2287,23 @@ public class ExploreActivity extends Activity {
         Set<String> seen = new HashSet<>();
         try {
             if (id.equals(HOME)) {
+                // Each source on its own: one that fails (a pick's recommendations timing out) leaves the others.
                 if (isHome()) {   // Malayalam first: what's big in Kerala right now
-                    List<Tmdb.Title> ml = malayalam();
-                    for (int i = 0; i < ml.size() && out.size() < 3; i++) addHero(out, seen, ml.get(i), Ui.tr("Em alta em malaiala", "Trending in Malayalam"));
+                    try {
+                        List<Tmdb.Title> ml = malayalam();
+                        for (int i = 0; i < ml.size() && out.size() < 3; i++) addHero(out, seen, ml.get(i), Ui.tr("Em alta em malaiala", "Trending in Malayalam"));
+                    } catch (Exception e) {
+                        AppLog.w("explore banner: malayalam: " + e.getMessage());
+                    }
                 }
-                String picked = Ui.tr("Recomendado para você", "Picked for you");
-                List<Tmdb.Title> mine = forYou();
-                int picks = out.size() + 2;
-                for (int i = 0; i < mine.size() && out.size() < picks; i++) addHero(out, seen, mine.get(i), picked);
+                try {
+                    String picked = Ui.tr("Recomendado para você", "Picked for you");
+                    List<Tmdb.Title> mine = forYou();
+                    int picks = out.size() + 2;
+                    for (int i = 0; i < mine.size() && out.size() < picks; i++) addHero(out, seen, mine.get(i), picked);
+                } catch (Exception e) {
+                    AppLog.w("explore banner: picks: " + e.getMessage());
+                }
                 for (Tmdb.Title t : Tmdb.titles(Tmdb.get("/trending/all/day"), "movie")) {
                     if (out.size() >= 7) break;
                     addHero(out, seen, t, Ui.tr("Em alta hoje", "Trending today"));
@@ -2940,7 +2959,13 @@ public class ExploreActivity extends Activity {
         int used = 0;
         for (Tmdb.Title s : seeds) {
             if (used++ >= 8) break;
-            for (Tmdb.Title t : Tmdb.titles(Tmdb.get("/" + s.kind + "/" + s.id + "/recommendations"), s.kind)) {
+            List<Tmdb.Title> recs;
+            try {
+                recs = Tmdb.titles(Tmdb.get("/" + s.kind + "/" + s.id + "/recommendations"), s.kind);
+            } catch (Exception e) {
+                continue;   // one that times out leaves the others' picks
+            }
+            for (Tmdb.Title t : recs) {
                 if (skip.contains(t.key())) continue;
                 byKey.putIfAbsent(t.key(), t);
                 count.merge(t.key(), 1, Integer::sum);
